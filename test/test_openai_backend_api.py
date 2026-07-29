@@ -5,7 +5,7 @@ import unittest
 
 os.environ.setdefault("CHATGPT2API_AUTH_KEY", "test-auth")
 
-from services.protocol.conversation import build_image_prompt
+from services.protocol.conversation import build_image_prompt, classify_image_text_error
 from services.openai_backend_api import (
     CODEX_IMAGE_MODEL,
     CODEX_RESPONSES_MODEL,
@@ -67,3 +67,17 @@ class OpenAIBackendApiImageSettingsTests(unittest.TestCase):
     def test_build_image_prompt_skips_4k_block_for_regular_sizes(self) -> None:
         prompt = build_image_prompt("生成一张城市夜景", "1024x1024", "auto")
         self.assertNotIn("请生成真正的4K超高清图片", prompt)
+
+    def test_classify_image_text_error_for_content_policy(self) -> None:
+        error_type, code = classify_image_text_error("Image rejected due to content policy moderation")
+        self.assertEqual(error_type, "invalid_request_error")
+        self.assertEqual(code, "content_policy_violation")
+
+    def test_classify_image_text_error_for_non_policy_text(self) -> None:
+        sample = (
+            "---\nname: \"imagegen\"\n"
+            "description: \"Generate or edit raster images\""
+        )
+        error_type, code = classify_image_text_error(sample)
+        self.assertEqual(error_type, "invalid_request_error")
+        self.assertEqual(code, "no_image_generated")

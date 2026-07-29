@@ -125,6 +125,18 @@ TOOL_PARAMS_JSON_RE = re.compile(
     r'\{\s*"size"\s*:\s*"\d+x\d+"\s*,\s*"n"\s*:\s*\d+\s*\}'
 )
 
+_CONTENT_POLICY_HINTS = (
+    "content_policy",
+    "content policy",
+    "content-policy",
+    "content_policy_violation",
+    "moderation",
+    "safety",
+    "内容政策",
+    "违规",
+    "敏感",
+)
+
 
 def is_model_text_reply_instead_of_image(message: str) -> bool:
     """检测模型是否返回了文本回复（包含工具调用 JSON）而非实际生成图片。
@@ -145,6 +157,19 @@ def is_model_text_reply_instead_of_image(message: str) -> bool:
     if TOOL_PARAMS_JSON_RE.search(message):
         return True
     return False
+
+
+def classify_image_text_error(message: str) -> tuple[str, str]:
+    """将图片链路中的文本消息分类为可返回给 OpenAI 兼容层的错误码。
+
+    - 仅当文本包含明确内容政策/审核信号时，返回 `content_policy_violation`
+    - 其他文本（例如工具说明、普通失败描述）统一标记为 `no_image_generated`
+    """
+    text = str(message or "").strip()
+    lowered = text.lower()
+    if any(hint in lowered for hint in _CONTENT_POLICY_HINTS):
+        return "invalid_request_error", "content_policy_violation"
+    return "invalid_request_error", "no_image_generated"
 
 
 def encode_images(images: Iterable[tuple[bytes, str, str]]) -> list[str]:
@@ -1457,11 +1482,14 @@ def _generate_single_image(
                     if account_email and not output.account_email:
                         output.account_email = account_email
                     if output.kind == "message" and request.message_as_error:
+                        error_type, error_code = classify_image_text_error(
+                            output.text or "Image generation was rejected by upstream policy."
+                        )
                         raise ImageGenerationError(
                             output.text or "Image generation was rejected by upstream policy.",
                             status_code=400,
-                            error_type="invalid_request_error",
-                            code="content_policy_violation",
+                            error_type=error_type,
+                            code=error_code,
                             account_email=account_email,
                             conversation_id=output.conversation_id,
                         )
