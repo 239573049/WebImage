@@ -209,3 +209,26 @@ def test_factory_migration_skips_when_database_already_has_data(tmp_path, monkey
     assert backend.load_accounts() == [{"access_token": "token-db", "name": "DB"}]
     # 数据库已有数据时不迁移也不重命名旧文件
     assert accounts_path.exists()
+
+
+def test_factory_sqlite_falls_back_when_database_url_is_invalid(tmp_path, monkeypatch):
+    from services.storage.factory import create_storage_backend
+
+    monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
+    monkeypatch.setenv("DATABASE_URL", "sqlite=///app/data/accounts.db")
+
+    backend = create_storage_backend(tmp_path)
+
+    assert isinstance(backend, DatabaseStorageBackend)
+    assert backend.database_url == f"sqlite:///{tmp_path / 'accounts.db'}"
+    assert (tmp_path / "accounts.db").exists()
+
+
+def test_factory_postgres_rejects_invalid_database_url(tmp_path, monkeypatch):
+    from services.storage.factory import create_storage_backend
+
+    monkeypatch.setenv("STORAGE_BACKEND", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql=//user:pass@host/db")
+
+    with pytest.raises(ValueError, match="Invalid DATABASE_URL"):
+        create_storage_backend(tmp_path)

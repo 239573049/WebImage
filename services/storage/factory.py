@@ -35,11 +35,27 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
     elif backend_type in ("sqlite", "postgres", "postgresql", "mysql", "database"):
         # 数据库存储
         database_url = os.getenv("DATABASE_URL", "").strip()
+        default_sqlite_url = f"sqlite:///{data_dir / 'accounts.db'}"
         
         if not database_url:
             # 如果没有指定 DATABASE_URL，使用本地 SQLite
-            database_url = f"sqlite:///{data_dir / 'accounts.db'}"
+            database_url = default_sqlite_url
             print(f"[storage] No DATABASE_URL provided, using local SQLite: {database_url}")
+        elif not _is_valid_database_url(database_url):
+            if backend_type == "sqlite":
+                # DATABASE_URL 无法解析（常见拼写错误，如 sqlite=/// 或缺少 ://），回退到本地 SQLite
+                print(
+                    f"[storage] WARNING: Invalid DATABASE_URL '{_mask_password(database_url)}', "
+                    f"falling back to local SQLite: {default_sqlite_url}"
+                )
+                database_url = default_sqlite_url
+            else:
+                raise ValueError(
+                    f"Invalid DATABASE_URL '{_mask_password(database_url)}'. "
+                    "Expected a SQLAlchemy URL like "
+                    "'postgresql://user:password@host:5432/dbname' or "
+                    "'sqlite:////app/data/accounts.db'."
+                )
         else:
             print(f"[storage] Using database storage: {_mask_password(database_url)}")
         
@@ -78,6 +94,17 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
             f"Unknown storage backend: {backend_type}. "
             f"Supported backends: json, sqlite, postgres, git"
         )
+
+
+def _is_valid_database_url(url: str) -> bool:
+    """检查 DATABASE_URL 是否能被 SQLAlchemy 解析"""
+    try:
+        from sqlalchemy.engine.url import make_url
+
+        make_url(url)
+        return True
+    except Exception:
+        return False
 
 
 def _migrate_legacy_json_files(backend: DatabaseStorageBackend, data_dir: Path) -> None:
