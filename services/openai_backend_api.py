@@ -115,6 +115,10 @@ EDITABLE_PSD_EXPORT_FILE_RE = re.compile(r"(?:sandbox:)?(/mnt/data/[^\s\"'\)\]]+
 EDITABLE_PPT_EXPORT_FILE_RE = re.compile(r"(?:sandbox:)?(/mnt/data/[^\s\"'\)\]]+\.(?:pptx?|zip))", re.IGNORECASE)
 FILE_SERVICE_ID_RE = re.compile(r"file-service://([A-Za-z0-9_-]+)")
 FILE_ID_RE = re.compile(r"\b(file[-_](?!service\b)[A-Za-z0-9_-]+)\b")
+# 4k 生图走 code interpreter 沙盒，产物是沙盒文件路径而非 file-service 指针
+SANDBOX_IMAGE_PATH_RE = re.compile(
+    r"(?:sandbox:)?(/(?:workspace|mnt)/[^\s\"'\)\]]+\.(?:png|jpe?g|webp|gif))", re.IGNORECASE
+)
 # 真正的图片文件 ID 格式：file_00000000 + 24位十六进制字符（共32字符）
 REAL_IMAGE_FILE_ID_RE = re.compile(r"\bfile_00000000[a-f0-9]{24}\b")
 SEDIMENT_ID_RE = re.compile(r"sediment://([A-Za-z0-9_-]+)")
@@ -2182,6 +2186,37 @@ class OpenAIBackendAPI:
                  "sediment_ids": sediment_ids})
         return sorted(records, key=lambda item: item["create_time"])
 
+    @classmethod
+    def _extract_sandbox_image_refs(cls, data: Dict[str, Any]) -> list[str]:
+        """提取沙盒生成的图片引用，编码为 sandbox:{message_id}:{sandbox_path}。"""
+        refs: list[str] = []
+        mapping = data.get("mapping") or {}
+        for message_id, node in mapping.items():
+            message = (node or {}).get("message") or {}
+            role = str(((message.get("author") or {}).get("role")) or "").strip().lower()
+            if role not in {"tool", "assistant"}:
+                continue
+            try:
+                blob = json.dumps({"content": message.get("content"), "metadata": message.get("metadata")}, ensure_ascii=False)
+            except (TypeError, ValueError):
+                continue
+            for path in SANDBOX_IMAGE_PATH_RE.findall(blob):
+                ref = f"sandbox:{message_id}:{path}"
+                if ref not in refs:
+                    refs.append(ref)
+        return refs
+
+    def _get_sandbox_image_download_url(self, conversation_id: str, message_id: str, sandbox_path: str) -> str:
+        path = f"/backend-api/conversation/{conversation_id}/interpreter/download"
+        response = self.session.get(
+            self.base_url + path,
+            headers=self._editable_download_headers(path, conversation_id, "/backend-api/conversation/{conversation_id}/interpreter/download"),
+            params={"message_id": message_id, "sandbox_path": sandbox_path},
+            timeout=60,
+        )
+        ensure_ok(response, path)
+        return self._download_url_from_response(response)
+
     @staticmethod
     def _find_content_policy_error_in_conversation(data: Dict[str, Any]) -> str:
         """从对话文档中查找内容政策违规错误消息。
@@ -2343,6 +2378,9 @@ class OpenAIBackendAPI:
                 for sediment_id in record["sediment_ids"]:
                     if sediment_id not in sediment_ids:
                         sediment_ids.append(sediment_id)
+
+            # 4k 生图产物可能只存在于沙盒，把沙盒引用计入命中判定
+            self._add_unique(file_ids, self._extract_sandbox_image_refs(conversation))
 
             # 检查对话文本中是否包含内容政策违规错误
             # 当上游拒绝生成图片时，错误消息会出现在对话文档的 assistant 消息中，
@@ -2514,7 +2552,11 @@ class OpenAIBackendAPI:
                 })
                 continue
             try:
-                url = self._get_file_download_url(file_id)
+                if file_id.startswith("sandbox:"):
+                    _, message_id, sandbox_path = file_id.split(":", 2)
+                    url = self._get_sandbox_image_download_url(conversation_id, message_id, sandbox_path)
+                else:
+                    url = self._get_file_download_url(file_id)
             except Exception as exc:
                 logger.debug({
                     "event": "image_download_url_failed",

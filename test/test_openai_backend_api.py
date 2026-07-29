@@ -103,3 +103,32 @@ class OpenAIBackendApiImageSettingsTests(unittest.TestCase):
         self.assertEqual(effective_image_poll_timeout("3840x2160"), config.image_poll_timeout_4k_secs)
         self.assertEqual(effective_image_poll_timeout("1024x1024"), config.image_poll_timeout_secs)
         self.assertGreaterEqual(config.image_poll_timeout_4k_secs, 600)
+
+    def test_sandbox_image_refs_extracted_from_conversation(self) -> None:
+        conversation = {
+            "mapping": {
+                "msg-1": {
+                    "message": {
+                        "author": {"role": "assistant"},
+                        "content": {
+                            "content_type": "text",
+                            "parts": ["图片在 sandbox:/workspace/scratch/37a209038549/generated_images/portrait-4k.png"],
+                        },
+                        "metadata": {},
+                    }
+                },
+                "msg-2": {
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {"content_type": "text", "parts": ["/workspace/foo.png"]},
+                        "metadata": {},
+                    }
+                },
+            }
+        }
+        refs = OpenAIBackendAPI._extract_sandbox_image_refs(conversation)
+        self.assertEqual(refs, ["sandbox:msg-1:/workspace/scratch/37a209038549/generated_images/portrait-4k.png"])
+        # 编码可无损拆回 message_id 与 sandbox_path
+        _, message_id, sandbox_path = refs[0].split(":", 2)
+        self.assertEqual(message_id, "msg-1")
+        self.assertEqual(sandbox_path, "/workspace/scratch/37a209038549/generated_images/portrait-4k.png")
