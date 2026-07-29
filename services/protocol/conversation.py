@@ -240,6 +240,18 @@ _QUALITY_HINTS = {
     "low": "低清晰度",
 }
 
+_FOUR_K_PROMPT_TEMPLATE = """请生成真正的4K超高清图片。
+
+生成前请理解4K标准：4K UHD约为{size}像素，不是普通高清或简单放大效果。
+
+要求：
+- 严格按照我提供的 size 参数生成，保持比例，不得修改。
+- 尽可能达到原生4K画质，保留超高清细节。
+- 提升纹理、光影、锐度和整体质感。
+- 禁止低分辨率、模糊、噪点或降级输出。
+
+请确认理解4K标准后再生成。"""
+
 
 def _size_hint(size: str) -> str:
     match = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", size.strip())
@@ -256,11 +268,17 @@ def _size_hint(size: str) -> str:
     return f"请严格按照 {width}x{height} 的分辨率（{orientation}构图，宽高比 {width // divisor}:{height // divisor}）生成图片。"
 
 
+def _four_k_prompt(size: str) -> str:
+    return _FOUR_K_PROMPT_TEMPLATE.format(size=size.strip())
+
+
 def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
     hints = []
     size = (size or "").strip()
     if size and size.lower() != "auto":
         hints.append(_size_hint(size))
+        if OpenAIBackendAPI._is_4k_image_size(size):
+            hints.append(_four_k_prompt(size))
     quality = (quality or "").strip()
     if quality and quality.lower() != "auto":
         hint = _QUALITY_HINTS.get(quality.lower(), quality)
@@ -750,6 +768,7 @@ def conversation_events(
         model=model,
         prompt=final_prompt,
         images=images if image_model else None,
+        size=size if image_model else None,
         system_hints=["picture_v2"] if image_model else None,
         thinking_effort=thinking_effort if not image_model else "",
     )
@@ -1332,8 +1351,10 @@ def stream_codex_image_outputs(
         index: int = 1,
         total: int = 1,
 ) -> Iterator[ImageOutput]:
+    final_prompt = build_image_prompt(request.prompt, request.size, request.quality)
     images = _codex_response_images(list(backend.iter_codex_image_response_events(
-        prompt=request.prompt,
+        prompt=final_prompt,
+        model=request.model,
         images=request.images or [],
         size=request.size,
         quality=request.quality,

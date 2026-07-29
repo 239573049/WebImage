@@ -82,6 +82,8 @@ DEFAULT_CLIENT_BUILD_NUMBER = "6708908"
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_RESPONSES_MODEL = "gpt-5.5"
+FOUR_K_IMAGE_MODEL = "gpt-5.6-luna-wm"
+FOUR_K_THINKING_EFFORT = "standard"
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
 SEARCH_POLL_INTERVAL_SECS = 3.0
@@ -589,6 +591,30 @@ class OpenAIBackendAPI:
             return model_name, suffix.lower()
         return upstream_model, self._normalize_thinking_effort(config.default_thinking_effort)
 
+    @staticmethod
+    def _is_4k_image_size(size: str | None) -> bool:
+        normalized = str(size or "").strip().lower()
+        if not normalized:
+            return False
+        if normalized == "4k":
+            return True
+        match = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", normalized)
+        if not match:
+            return False
+        width = int(match.group(1))
+        height = int(match.group(2))
+        return max(width, height) >= 3840 and min(width, height) >= 2160
+
+    def _image_request_settings(self, model: str, size: str | None = None) -> tuple[str, str]:
+        if self._is_4k_image_size(size):
+            return FOUR_K_IMAGE_MODEL, FOUR_K_THINKING_EFFORT
+        return self._image_model_settings(model)
+
+    def _codex_response_settings(self, size: str | None = None) -> tuple[str, str]:
+        if self._is_4k_image_size(size):
+            return FOUR_K_IMAGE_MODEL, FOUR_K_THINKING_EFFORT
+        return CODEX_RESPONSES_MODEL, ""
+
     def _image_headers(self, path: str, requirements: ChatRequirements, conduit_token: str = "", accept: str = "*/*") -> \
             Dict[str, str]:
         """构造图片链路请求头。"""
@@ -787,6 +813,7 @@ class OpenAIBackendAPI:
     def iter_codex_image_response_events(
             self,
             prompt: str,
+            model: str = CODEX_IMAGE_MODEL,
             images: list[str] | None = None,
             size: str | None = None,
             quality: str = "auto",
@@ -795,8 +822,9 @@ class OpenAIBackendAPI:
             raise RuntimeError("access_token is required for codex image endpoints")
         self._ensure_codex_source_account()
         path = "/backend-api/codex/responses"
+        upstream_model, thinking_effort = self._codex_response_settings(size)
         payload = {
-            "model": CODEX_RESPONSES_MODEL,
+            "model": upstream_model,
             "instructions": CODEX_RESPONSES_INSTRUCTIONS,
             "store": False,
             "input": self._codex_image_input(prompt, images or []),
@@ -811,6 +839,8 @@ class OpenAIBackendAPI:
             "tool_choice": {"type": "image_generation"},
             "stream": True,
         }
+        if thinking_effort:
+            payload["thinking_effort"] = thinking_effort
         request = urllib.request.Request(
             self.base_url + path,
             json.dumps(payload).encode(),
@@ -873,10 +903,16 @@ class OpenAIBackendAPI:
             retry_after = int(retry_after_header) if str(retry_after_header or "").isdigit() else None
             raise UpstreamHTTPError(path, error.code, body, retry_after=retry_after) from error
 
-    def _prepare_image_conversation(self, prompt: str, requirements: ChatRequirements, model: str) -> str:
+    def _prepare_image_conversation(
+            self,
+            prompt: str,
+            requirements: ChatRequirements,
+            model: str,
+            size: str | None = None,
+    ) -> str:
         """为图片生成准备 conduit token。"""
         path = "/backend-api/f/conversation/prepare"
-        upstream_model, thinking_effort = self._image_model_settings(model)
+        upstream_model, thinking_effort = self._image_request_settings(model, size)
         payload = {
             "action": "next",
             "fork_from_shared_post": False,
@@ -1007,10 +1043,17 @@ class OpenAIBackendAPI:
             "height": height,
         }
 
-    def _start_image_generation(self, prompt: str, requirements: ChatRequirements, conduit_token: str, model: str,
-                                references: Optional[list[Dict[str, Any]]] = None) -> requests.Response:
+    def _start_image_generation(
+            self,
+            prompt: str,
+            requirements: ChatRequirements,
+            conduit_token: str,
+            model: str,
+            size: str | None = None,
+            references: Optional[list[Dict[str, Any]]] = None,
+    ) -> requests.Response:
         """启动图片生成或编辑的 SSE 请求。"""
-        upstream_model, thinking_effort = self._image_model_settings(model)
+        upstream_model, thinking_effort = self._image_request_settings(model, size)
         references = references or []
         parts = [{
             "content_type": "image_asset_pointer",
@@ -2602,12 +2645,13 @@ class OpenAIBackendAPI:
             model: str = "auto",
             prompt: str = "",
             images: Optional[list[str]] = None,
+            size: str | None = None,
             system_hints: Optional[list[str]] = None,
             thinking_effort: str = "",
     ) -> Iterator[str]:
         system_hints = system_hints or []
         if "picture_v2" in system_hints:
-            yield from self._stream_picture_conversation(prompt, model, images or [])
+            yield from self._stream_picture_conversation(prompt, model, images or [], size)
             return
 
         normalized = messages or [{"role": "user", "content": prompt}]
@@ -2641,6 +2685,7 @@ class OpenAIBackendAPI:
             prompt: str,
             model: str,
             images: list[str],
+            size: str | None = None,
     ) -> Iterator[str]:
         if not self.access_token:
             raise RuntimeError("access_token is required for image endpoints")
@@ -2651,9 +2696,9 @@ class OpenAIBackendAPI:
         self._report_progress("getting_token")
         requirements = self._get_chat_requirements()
         self._report_progress("preparing_conversation")
-        conduit_token = self._prepare_image_conversation(prompt, requirements, model)
+        conduit_token = self._prepare_image_conversation(prompt, requirements, model, size)
         self._report_progress("starting_generation")
-        response = self._start_image_generation(prompt, requirements, conduit_token, model, references)
+        response = self._start_image_generation(prompt, requirements, conduit_token, model, size, references)
         self._report_progress("generating")
         yield from self._iter_sse_payloads_capped(response, float(config.image_poll_timeout_secs))
 
