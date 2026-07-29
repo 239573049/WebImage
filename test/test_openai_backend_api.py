@@ -44,6 +44,11 @@ class OpenAIBackendApiImageSettingsTests(unittest.TestCase):
             (FOUR_K_IMAGE_MODEL, FOUR_K_THINKING_EFFORT),
         )
 
+    def test_conversation_origin_only_applies_to_4k_sizes(self) -> None:
+        self.assertEqual(self.backend._image_conversation_origin("3840x2160"), "tpp")
+        self.assertEqual(self.backend._image_conversation_origin("4k"), "tpp")
+        self.assertIsNone(self.backend._image_conversation_origin("1024x1024"))
+
     def test_non_4k_codex_request_settings_are_unchanged(self) -> None:
         self.assertEqual(
             self.backend._image_request_settings(CODEX_IMAGE_MODEL, "1024x1024"),

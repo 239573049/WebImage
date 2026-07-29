@@ -615,6 +615,10 @@ class OpenAIBackendAPI:
             return FOUR_K_IMAGE_MODEL, FOUR_K_THINKING_EFFORT
         return CODEX_RESPONSES_MODEL, ""
 
+    @classmethod
+    def _image_conversation_origin(cls, size: str | None = None) -> str | None:
+        return "tpp" if cls._is_4k_image_size(size) else None
+
     def _image_headers(self, path: str, requirements: ChatRequirements, conduit_token: str = "", accept: str = "*/*") -> \
             Dict[str, str]:
         """构造图片链路请求头。"""
@@ -1113,6 +1117,9 @@ class OpenAIBackendAPI:
             "paragen_cot_summary_display_override": "allow",
             "force_parallel_switch": "auto",
         }
+        conversation_origin = self._image_conversation_origin(size)
+        if conversation_origin:
+            payload["conversation_origin"] = conversation_origin
         if thinking_effort:
             payload["thinking_effort"] = thinking_effort
         path = "/backend-api/f/conversation"
