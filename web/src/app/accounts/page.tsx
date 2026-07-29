@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { PageEnter } from "@/components/page-enter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -729,7 +730,7 @@ function AccountsPageContent() {
   };
 
   return (
-    <>
+    <PageEnter className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <div className="text-xs font-semibold tracking-[0.18em] text-stone-500 uppercase">
@@ -1374,7 +1375,7 @@ function AccountsPageContent() {
           </CardContent>
         </Card>
       </section>
-    </>
+    </PageEnter>
   );
 }
 

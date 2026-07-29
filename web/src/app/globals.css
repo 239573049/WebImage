@@ -143,6 +143,22 @@
   }
 }
 
+:root {
+  /* 移动端顶栏高度；桌面端导航移到左侧后为 0 */
+  --app-topbar-h: 3rem;
+  --sidebar-w: 14rem;
+}
+
+[data-sidebar="collapsed"] {
+  --sidebar-w: 3.75rem;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --app-topbar-h: 0rem;
+  }
+}
+
 .dark .bg-white,
 .dark .bg-white\/85,
 .dark .bg-white\/90,

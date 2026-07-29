@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageEnter } from "@/components/page-enter";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 import { BackupSettingsCard } from "./components/backup-settings-card";
@@ -76,7 +77,7 @@ function SettingsDataController() {
 
 function SettingsPageContent() {
   return (
-    <>
+    <PageEnter className="space-y-5">
       <SettingsDataController />
       <SettingsHeader />
       <Tabs defaultValue="basic" className="space-y-4">
@@ -116,7 +117,7 @@ function SettingsPageContent() {
       </Tabs>
       <CPAPoolDialog />
       <ImportBrowserDialog />
-    </>
+    </PageEnter>
   );
 }
 

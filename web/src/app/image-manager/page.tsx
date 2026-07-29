@@ -5,6 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, ImageIcon, Loa
 import { toast } from "sonner";
 
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { PageEnter } from "@/components/page-enter";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -273,7 +274,7 @@ function ImageManagerContent() {
   }, [startDate, endDate]);
 
   return (
-    <section className="space-y-5">
+    <PageEnter className="space-y-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
           <div className="text-xs font-semibold tracking-[0.18em] text-stone-500 uppercase">Images</div>
@@ -719,7 +720,7 @@ function ImageManagerContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </PageEnter>
   );
 }
 

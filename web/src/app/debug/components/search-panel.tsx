@@ -92,7 +92,7 @@ export function SearchPanel() {
   };
 
   return (
-    <section className={cn("mx-auto flex min-h-[calc(100vh-142px)] w-full max-w-6xl flex-col px-4 transition-all", searched ? "py-5" : "justify-center")}>
+    <section className={cn("mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col overflow-y-auto px-4 transition-all", searched ? "py-5" : "justify-center")}>
       <div className={cn("mx-auto w-full max-w-3xl", searched && "sticky top-3 z-10")}>
         {!searched ? (
           <p className="mb-5 text-center text-sm text-stone-500 dark:text-stone-400">利用ChatGPT先进的网页搜索功能进行搜索</p>

@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight, ImageIcon, LoaderCircle, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ImageThumbnail, getImageThumbnailUrl } from "@/components/image-thumbnail";
+import { PageEnter } from "@/components/page-enter";
+import { RpmPanel } from "@/components/rpm-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { deleteSystemLogs, fetchSystemLogs, type SystemLog } from "@/lib/api";
+import { fadeUpItem } from "@/lib/motion";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const LogType = {
@@ -26,6 +30,8 @@ const typeLabels: Record<string, string> = {
   [LogType.Call]: "调用日志",
   [LogType.Account]: "账号管理日志",
 };
+
+const pageSizeOptions = [10, 20, 50, 100];
 
 function getDetailText(item: SystemLog, key: string) {
   const value = item.detail?.[key];
@@ -54,6 +60,7 @@ function getStatus(item: SystemLog) {
 }
 
 function LogsContent() {
+  const reduceMotion = useReducedMotion();
   const [items, setItems] = useState<SystemLog[]>([]);
   const [type, setType] = useState<string>(LogType.Call);
   const [startDate, setStartDate] = useState("");
@@ -63,6 +70,8 @@ function LogsContent() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -72,23 +81,21 @@ function LogsContent() {
   const detailLinkUrls = detailUrls.filter((url) => !isLocalImageUrl(url));
   const detailImages = detailImageUrls.map((url, index) => ({ id: `${index}`, src: url }));
   const isCallLog = type === LogType.Call;
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
-  const safePage = Math.min(page, pageCount);
-  const currentRows = items.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const currentPageSelected = currentRows.length > 0 && currentRows.every((item) => selectedSet.has(item.id));
-  const allSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
+  const currentPageSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
 
-  const loadLogs = async () => {
+  const loadLogs = async (targetPage = page) => {
     setIsLoading(true);
     try {
-      const data = await fetchSystemLogs({ type, start_date: startDate, end_date: endDate });
+      const data = await fetchSystemLogs({ type, start_date: startDate, end_date: endDate, page: targetPage, page_size: pageSize });
       setItems(data.items);
+      setHasMore(data.has_more);
+      setPage(data.page);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
-      setPage(1);
+      return data;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "加载日志失败");
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +134,11 @@ function LogsContent() {
         setDetailOpen(false);
         setDetailLog(null);
       }
-      await loadLogs();
+      // 整页被删空时回退一页，避免停在空白页
+      const reloaded = await loadLogs(page);
+      if (reloaded && reloaded.items.length === 0 && page > 1) {
+        await loadLogs(page - 1);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "删除日志失败");
     } finally {
@@ -136,12 +147,16 @@ function LogsContent() {
   };
 
   useEffect(() => {
-    void loadLogs();
-  }, [type, startDate, endDate]);
+    setPage(1);
+    void loadLogs(1);
+  }, [type, startDate, endDate, pageSize]);
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <PageEnter className="space-y-5">
+      <motion.div
+        className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+        variants={reduceMotion ? undefined : fadeUpItem}
+      >
         <div className="space-y-1">
           <div className="text-xs font-semibold tracking-[0.18em] text-stone-500 uppercase">Logs</div>
           <h1 className="text-2xl font-semibold tracking-tight">日志管理</h1>
@@ -163,20 +178,18 @@ function LogsContent() {
             查询
           </Button>
         </div>
-      </div>
+      </motion.div>
 
+      <RpmPanel />
+
+      <motion.div variants={reduceMotion ? undefined : fadeUpItem}>
       <Card className="overflow-hidden rounded-2xl border-white/80 bg-white/90 shadow-sm">
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
-              <span>共 {items.length} 条</span>
               <label className="flex items-center gap-2">
-                <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => toggleIds(currentRows.map((item) => item.id), Boolean(checked))} />
-                本页全选
-              </label>
-              <label className="flex items-center gap-2">
-                <Checkbox checked={allSelected} onCheckedChange={(checked) => toggleIds(items.map((item) => item.id), Boolean(checked))} />
-                全选结果
+                <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => toggleIds(items.map((item) => item.id), Boolean(checked))} />
+                选中当前页
               </label>
               {selectedIds.length > 0 ? <span>已选 {selectedIds.length} 条</span> : null}
             </div>
@@ -210,97 +223,140 @@ function LogsContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {currentRows.map((item) => {
-                  const urls = getUrls(item);
-                  const imageUrls = urls.filter(isLocalImageUrl);
-                  const linkUrls = urls.filter((url) => !isLocalImageUrl(url));
-                  return (
-                    <TableRow key={item.id} className="text-stone-600">
-                      <TableCell>
-                        <Checkbox checked={selectedSet.has(item.id)} onCheckedChange={(checked) => toggleIds([item.id], Boolean(checked))} />
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{item.time}</TableCell>
-                      <TableCell><Badge variant="secondary" className="rounded-md">{typeLabels[item.type] || item.type}</Badge></TableCell>
-                      {isCallLog ? <TableCell>{getDetailText(item, "key_name")}</TableCell> : null}
-                      {isCallLog ? <TableCell>{formatDuration(item)}</TableCell> : null}
-                      {isCallLog ? (
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {items.map((item, index) => {
+                    const urls = getUrls(item);
+                    const imageUrls = urls.filter(isLocalImageUrl);
+                    const linkUrls = urls.filter((url) => !isLocalImageUrl(url));
+                    return (
+                      <motion.tr
+                        key={item.id}
+                        layout={!reduceMotion}
+                        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                        transition={{
+                          duration: 0.2,
+                          delay: reduceMotion ? 0 : Math.min(index, 12) * 0.02,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                        className="border-b border-stone-100 text-stone-600 transition-colors hover:bg-stone-50/70"
+                      >
                         <TableCell>
-                          <Badge variant={item.detail?.status === "failed" ? "danger" : "success"} className="rounded-md">
-                            {getStatus(item)}
+                          <Checkbox checked={selectedSet.has(item.id)} onCheckedChange={(checked) => toggleIds([item.id], Boolean(checked))} />
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{item.time}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="rounded-md">
+                            {typeLabels[item.type] || item.type}
                           </Badge>
                         </TableCell>
-                      ) : null}
-                      {isCallLog ? (
+                        {isCallLog ? <TableCell>{getDetailText(item, "key_name")}</TableCell> : null}
+                        {isCallLog ? <TableCell>{formatDuration(item)}</TableCell> : null}
+                        {isCallLog ? (
+                          <TableCell>
+                            <Badge variant={item.detail?.status === "failed" ? "danger" : "success"} className="rounded-md">
+                              {getStatus(item)}
+                            </Badge>
+                          </TableCell>
+                        ) : null}
+                        {isCallLog ? (
+                          <TableCell>
+                            {urls.length ? (
+                              <div className="flex flex-col gap-1">
+                                {imageUrls.length ? (
+                                  <div className="flex items-center gap-1.5">
+                                    {imageUrls.slice(0, 3).map((url, imageIndex) => (
+                                      <button
+                                        key={`${url}-${imageIndex}`}
+                                        type="button"
+                                        className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
+                                        onClick={() => openLogImage(item, imageIndex)}
+                                        title="预览图片"
+                                      >
+                                        <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
+                                      </button>
+                                    ))}
+                                    {imageUrls.length > 3 ? <span className="text-xs text-stone-400">+{imageUrls.length - 3}</span> : null}
+                                  </div>
+                                ) : null}
+                                {linkUrls.slice(0, 2).map((url, linkIndex) => (
+                                  <a
+                                    key={`${url}-${linkIndex}`}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="max-w-[140px] truncate text-xs text-sky-600 hover:underline"
+                                    title={url}
+                                  >
+                                    {url}
+                                  </a>
+                                ))}
+                                {linkUrls.length > 2 ? <span className="text-xs text-stone-400">+{linkUrls.length - 2}</span> : null}
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs text-stone-400">
+                                <ImageIcon className="size-3.5" />
+                                -
+                              </span>
+                            )}
+                          </TableCell>
+                        ) : null}
+                        <TableCell className="max-w-[420px] truncate text-stone-500">{item.summary || "-"}</TableCell>
                         <TableCell>
-                          {urls.length ? (
-                            <div className="flex flex-col gap-1">
-                              {imageUrls.length ? (
-                                <div className="flex items-center gap-1.5">
-                                  {imageUrls.slice(0, 3).map((url, imageIndex) => (
-                                    <button
-                                      key={`${url}-${imageIndex}`}
-                                      type="button"
-                                      className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
-                                      onClick={() => openLogImage(item, imageIndex)}
-                                      title="预览图片"
-                                    >
-                                      <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
-                                    </button>
-                                  ))}
-                                  {imageUrls.length > 3 ? <span className="text-xs text-stone-400">+{imageUrls.length - 3}</span> : null}
-                                </div>
-                              ) : null}
-                              {linkUrls.slice(0, 2).map((url, linkIndex) => (
-                                <a
-                                  key={`${url}-${linkIndex}`}
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="max-w-[140px] truncate text-xs text-sky-600 hover:underline"
-                                  title={url}
-                                >
-                                  {url}
-                                </a>
-                              ))}
-                              {linkUrls.length > 2 ? <span className="text-xs text-stone-400">+{linkUrls.length - 2}</span> : null}
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-stone-400">
-                              <ImageIcon className="size-3.5" />
-                              -
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-600" onClick={() => openDetail(item)}>
+                              查看详情
+                            </Button>
+                            <Button variant="ghost" className="h-8 rounded-lg px-3 text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setDeletingItems([item])}>
+                              删除
+                            </Button>
+                          </div>
                         </TableCell>
-                      ) : null}
-                      <TableCell className="max-w-[420px] truncate text-stone-500">{item.summary || "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-600" onClick={() => openDetail(item)}>
-                            查看详情
-                          </Button>
-                          <Button variant="ghost" className="h-8 rounded-lg px-3 text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setDeletingItems([item])}>
-                            删除
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                      </motion.tr>
+                    );
+                  })}
+                </AnimatePresence>
               </TableBody>
             </Table>
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
-            <span>第 {safePage} / {pageCount} 页，共 {items.length} 条</span>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
+            <span className="mr-auto flex items-center gap-2">
+              每页
+              <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+                <SelectTrigger className="h-9 w-[84px] rounded-lg border-stone-200 bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {pageSizeOptions.map((size) => (
+                    <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              条
+            </span>
+            <span>第 {page} 页</span>
+            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={page <= 1 || isLoading} onClick={() => void loadLogs(page - 1)}>
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={!hasMore || isLoading} onClick={() => void loadLogs(page + 1)}>
               <ChevronRight className="size-4" />
             </Button>
           </div>
-          {!isLoading && items.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">没有找到日志</div> : null}
+          <AnimatePresence>
+            {!isLoading && items.length === 0 ? (
+              <motion.div
+                key="empty"
+                initial={reduceMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={reduceMotion ? undefined : { opacity: 0 }}
+                className="px-6 py-14 text-center text-sm text-stone-500"
+              >
+                没有找到日志
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </CardContent>
       </Card>
+      </motion.div>
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="flex h-[min(88vh,860px)] w-[min(92vw,920px)] flex-col overflow-hidden rounded-2xl p-0">
           <DialogHeader className="shrink-0 border-b border-stone-100 px-6 py-5">
@@ -377,7 +433,7 @@ function LogsContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </PageEnter>
   );
 }
 

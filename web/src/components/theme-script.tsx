@@ -10,6 +10,12 @@ const themeScript = `
     document.documentElement.classList.remove("dark");
     document.documentElement.style.colorScheme = "light";
   }
+  try {
+    const sidebar = localStorage.getItem("chatgpt2api-sidebar");
+    document.documentElement.dataset.sidebar = sidebar === "collapsed" ? "collapsed" : "expanded";
+  } catch {
+    document.documentElement.dataset.sidebar = "expanded";
+  }
 })();
 `;
 

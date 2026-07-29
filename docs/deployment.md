@@ -154,20 +154,22 @@ bun run dev
 
 ## 存储后端
 
-默认使用本地 JSON 文件：
+默认使用本地 SQLite 数据库：
 
 ```text
-STORAGE_BACKEND=json
+STORAGE_BACKEND=sqlite
 ```
 
 可选值：
 
 | 值 | 说明 |
 | --- | --- |
-| `json` | 本地 JSON 文件，默认方式 |
-| `sqlite` | 本地 SQLite，通常存放在 `data/accounts.db` |
+| `sqlite` | 本地 SQLite，默认方式，存放在 `data/accounts.db` |
+| `json` | 本地 JSON 文件 |
 | `postgres` | 外部 PostgreSQL |
 | `git` | Git 私有仓库存储账号数据 |
+
+首次以 SQLite 启动时，如检测到旧的 `data/accounts.json` / `data/auth_keys.json` 且数据库为空，会自动迁移数据并将旧文件重命名为 `*.json.migrated` 备份。
 
 PostgreSQL 示例：
 

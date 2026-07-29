@@ -291,6 +291,35 @@ export type SystemLog = {
   [key: string]: unknown;
 };
 
+export type SystemLogPage = {
+  items: SystemLog[];
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+export type AiMetricsEndpoint = {
+  endpoint: string;
+  count: number;
+  success: number;
+  failed: number;
+  avg_duration_ms: number;
+};
+
+export type AiMetrics = {
+  window_seconds: number;
+  rpm: number;
+  requests: number;
+  success: number;
+  failed: number;
+  avg_duration_ms: number;
+  by_endpoint: AiMetricsEndpoint[];
+  trend: Array<{ minute: string; timestamp: number; count: number }>;
+  total_requests: number;
+  uptime_seconds: number;
+  server_time: string;
+};
+
 export type ImageResponse = {
   created: number;
   data: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
@@ -681,12 +710,27 @@ export async function deleteToTarget(targetFreeMb: number) {
   );
 }
 
-export async function fetchSystemLogs(filters: { type?: string; start_date?: string; end_date?: string }) {
+export async function fetchSystemLogs(filters: {
+  type?: string;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+}) {
   const params = new URLSearchParams();
   if (filters.type) params.set("type", filters.type);
   if (filters.start_date) params.set("start_date", filters.start_date);
   if (filters.end_date) params.set("end_date", filters.end_date);
-  return httpRequest<{ items: SystemLog[] }>(`/api/logs${params.toString() ? `?${params.toString()}` : ""}`);
+  params.set("page", String(filters.page ?? 1));
+  params.set("page_size", String(filters.page_size ?? 20));
+  return httpRequest<SystemLogPage>(`/api/logs?${params.toString()}`);
+}
+
+export async function fetchAiMetrics(params: { window?: number; trend_minutes?: number } = {}) {
+  const search = new URLSearchParams();
+  search.set("window", String(params.window ?? 60));
+  search.set("trend_minutes", String(params.trend_minutes ?? 30));
+  return httpRequest<AiMetrics>(`/api/metrics/rpm?${search.toString()}`);
 }
 
 export async function deleteSystemLogs(ids: string[]) {

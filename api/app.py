@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 from threading import Event
 
 import anyio.to_thread
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -14,6 +15,7 @@ from api.support import resolve_web_asset, start_limited_account_watcher
 from services.backup_service import backup_service
 from services.config import config
 from services.image_service import start_image_cleanup_scheduler
+from services.metrics_service import ai_metrics
 
 
 def create_app() -> FastAPI:
@@ -45,6 +47,20 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def track_ai_metrics(request: Request, call_next):
+        if not request.url.path.startswith("/v1/"):
+            return await call_next(request)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            _record_ai_request(request, False, started)
+            raise
+        _record_ai_request(request, response.status_code < 400, started)
+        return response
+
     app.include_router(ai.create_router())
     app.include_router(accounts.create_router())
     app.include_router(image_tasks.create_router())
@@ -63,3 +79,12 @@ def create_app() -> FastAPI:
         return FileResponse(fallback)
 
     return app
+
+
+def _record_ai_request(request: Request, ok: bool, started: float) -> None:
+    route = request.scope.get("route")
+    # 用路由模板而非实际路径，避免路径参数把端点维度打散
+    endpoint = getattr(route, "path", None) or request.url.path
+    if "{full_path" in endpoint:
+        return
+    ai_metrics.record(endpoint, ok, (time.perf_counter() - started) * 1000)

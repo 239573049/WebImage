@@ -21,6 +21,8 @@ from utils.helper import anthropic_sse_stream, sse_json_stream
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
 INTERNAL_RESPONSE_KEYS = {"_account_email", "_conversation_id"}
+# 深翻页时的扫描上限，避免筛选条件命中极少时把整个日志文件读完
+MAX_SCAN_LINES = 200_000
 
 
 class LogService:
@@ -71,21 +73,91 @@ class LogService:
         with self.path.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")
 
-    def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
+    def _iter_lines_reverse(self, chunk_size: int = 64 * 1024):
+        """从文件尾部反向分块读取，逐行 yield 文本，避免把整个日志载入内存。"""
+        with self.path.open("rb") as file:
+            file.seek(0, 2)
+            remaining = file.tell()
+            if remaining == 0:
+                return
+            file.seek(remaining - 1)
+            if file.read(1) == b"\n":
+                remaining -= 1
+            buffer = b""
+            while remaining > 0:
+                read_size = min(chunk_size, remaining)
+                remaining -= read_size
+                file.seek(remaining)
+                buffer = file.read(read_size) + buffer
+                parts = buffer.split(b"\n")
+                buffer = parts[0]
+                for index in range(len(parts) - 1, 0, -1):
+                    yield parts[index].decode("utf-8", errors="ignore")
+            yield buffer.decode("utf-8", errors="ignore")
+
+    def _iter_items_reverse(self, *, type: str, start_date: str, end_date: str, max_scan_lines: int | None = None):
         if not self.path.exists():
-            return []
-        items: list[dict[str, Any]] = []
-        lines = self.path.read_text(encoding="utf-8").splitlines()
-        for line_number in range(len(lines) - 1, -1, -1):
-            item = self._parse_line(lines[line_number], line_number)
-            if item is None:
+            return
+        scan_limit = MAX_SCAN_LINES if max_scan_lines is None else max_scan_lines
+        total_lines: int | None = None
+        scanned = 0
+        for raw_line in self._iter_lines_reverse():
+            scanned += 1
+            if scanned > scan_limit:
+                return
+            try:
+                parsed = json.loads(raw_line)
+            except Exception:
                 continue
+            if not isinstance(parsed, dict):
+                continue
+            item = dict(parsed)
+            if not item.get("id"):
+                # 旧数据没有 id，回退到基于行号的 legacy id，此时才需要知道总行数
+                if total_lines is None:
+                    total_lines = self._count_lines()
+                item["id"] = self._legacy_id(raw_line, total_lines - scanned)
+            else:
+                item["id"] = str(item["id"])
             if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date):
                 continue
-            items.append(item)
-            if len(items) >= limit:
-                break
-        return items
+            yield item
+
+    def _count_lines(self) -> int:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return 0
+        count = 0
+        tail = b""
+        with self.path.open("rb") as file:
+            while block := file.read(1024 * 1024):
+                count += block.count(b"\n")
+                tail = block[-1:]
+        return count if tail == b"\n" else count + 1
+
+    def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        stream = self._iter_items_reverse(type=type, start_date=start_date, end_date=end_date)
+        return list(itertools.islice(stream, max(0, limit)))
+
+    def list_page(
+        self,
+        type: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """服务端分页，不返回总数：多取一条用于判断是否还有下一页。"""
+        page = max(1, page)
+        page_size = max(1, page_size)
+        offset = (page - 1) * page_size
+        stream = self._iter_items_reverse(type=type, start_date=start_date, end_date=end_date)
+        window = list(itertools.islice(stream, offset, offset + page_size + 1))
+        return {
+            "items": window[:page_size],
+            "page": page,
+            "page_size": page_size,
+            "has_more": len(window) > page_size,
+        }
 
     def delete(self, ids: list[str]) -> dict[str, int]:
         target_ids = {str(item or "").strip() for item in ids if str(item or "").strip()}

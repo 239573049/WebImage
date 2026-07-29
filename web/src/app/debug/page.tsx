@@ -2,6 +2,7 @@
 
 import { LoaderCircle } from "lucide-react";
 
+import { PageEnter } from "@/components/page-enter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
@@ -24,36 +25,38 @@ export default function DebugPage() {
 
   if (isCheckingAuth || !session || session.role !== "admin") {
     return (
-      <div className="flex min-h-[calc(100vh-49px)] items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center">
         <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <Tabs defaultValue="skills" className="mx-auto flex min-h-[calc(100vh-49px)] w-full max-w-[1600px] flex-col gap-4 px-4 pt-3 pb-6 md:px-8">
-      <TabsList variant="line" className="w-full">
-        {tabs.map(({ value, title }) => (
-          <TabsTrigger key={value} value={value}>
-            {title}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      <TabsContent value="skills">
-        <SkillPanel />
-      </TabsContent>
-      <TabsContent value="search" className="min-h-0">
-        <SearchPanel />
-      </TabsContent>
-      <TabsContent value="ppt" className="min-h-0">
-        <PptPanel />
-      </TabsContent>
-      <TabsContent value="psd" className="min-h-0">
-        <PsdPanel />
-      </TabsContent>
-      <TabsContent value="chat" className="min-h-0">
-        <ChatPanel />
-      </TabsContent>
-    </Tabs>
+    <PageEnter className="flex h-full min-h-0 w-full flex-col">
+      <Tabs defaultValue="skills" className="flex h-full min-h-0 w-full flex-col gap-4">
+        <TabsList variant="line" className="w-full shrink-0">
+          {tabs.map(({ value, title }) => (
+            <TabsTrigger key={value} value={value}>
+              {title}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="skills" className="min-h-0 overflow-y-auto">
+          <SkillPanel />
+        </TabsContent>
+        <TabsContent value="search" className="min-h-0 overflow-hidden">
+          <SearchPanel />
+        </TabsContent>
+        <TabsContent value="ppt" className="min-h-0 overflow-hidden">
+          <PptPanel />
+        </TabsContent>
+        <TabsContent value="psd" className="min-h-0 overflow-hidden">
+          <PsdPanel />
+        </TabsContent>
+        <TabsContent value="chat" className="min-h-0 overflow-hidden">
+          <ChatPanel />
+        </TabsContent>
+      </Tabs>
+    </PageEnter>
   );
 }
