@@ -12,6 +12,7 @@ from services.openai_backend_api import (
     FOUR_K_IMAGE_MODEL,
     FOUR_K_THINKING_EFFORT,
     OpenAIBackendAPI,
+    _is_content_policy_error,
 )
 
 
@@ -81,3 +82,24 @@ class OpenAIBackendApiImageSettingsTests(unittest.TestCase):
         error_type, code = classify_image_text_error(sample)
         self.assertEqual(error_type, "invalid_request_error")
         self.assertEqual(code, "no_image_generated")
+
+    def test_imagegen_skill_frontmatter_is_not_content_policy_error(self) -> None:
+        # 4k 生成过程中模型会先输出 imagegen 技能说明（YAML frontmatter），不能判成违规
+        sample = (
+            "---\nname: \"imagegen\"\n"
+            "description: \"Generate or edit raster images when the task benefits from "
+            "AI-created bitmap visuals... Do not use when the task is better handled by "
+            "editing existing SVG/vector/code-native"
+        )
+        self.assertFalse(_is_content_policy_error(sample))
+
+    def test_real_policy_message_still_detected(self) -> None:
+        self.assertTrue(_is_content_policy_error("这张图片违反了我们的内容政策，无法生成。"))
+
+    def test_4k_size_uses_extended_poll_timeout(self) -> None:
+        from services.config import config
+        from services.protocol.conversation import effective_image_poll_timeout
+
+        self.assertEqual(effective_image_poll_timeout("3840x2160"), config.image_poll_timeout_4k_secs)
+        self.assertEqual(effective_image_poll_timeout("1024x1024"), config.image_poll_timeout_secs)
+        self.assertGreaterEqual(config.image_poll_timeout_4k_secs, 600)

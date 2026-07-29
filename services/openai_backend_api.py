@@ -142,6 +142,9 @@ def _is_content_policy_error(error_msg: str) -> bool:
     if not error_msg:
         return False
     msg_lower = error_msg.lower()
+    # 模型有时会把工具/skill 定义文本（YAML frontmatter）当作回复吐出，这不是政策违规
+    if msg_lower.lstrip().startswith("---") and "name:" in msg_lower and "description:" in msg_lower:
+        return False
     return any(keyword in msg_lower for keyword in _CONTENT_POLICY_KEYWORDS)
 
 
@@ -2707,7 +2710,9 @@ class OpenAIBackendAPI:
         self._report_progress("starting_generation")
         response = self._start_image_generation(prompt, requirements, conduit_token, model, size, references)
         self._report_progress("generating")
-        yield from self._iter_sse_payloads_capped(response, float(config.image_poll_timeout_secs))
+        # 4k 生图耗时更长，SSE 硬上限同步放宽
+        hard_cap = config.image_poll_timeout_4k_secs if self._is_4k_image_size(size) else config.image_poll_timeout_secs
+        yield from self._iter_sse_payloads_capped(response, float(hard_cap))
 
     def _iter_sse_payloads_capped(self, response: Any, hard_cap_secs: float) -> Iterator[str]:
         """按墙钟硬上限消费图片 SSE 流，避免上游异常时长连接被无限挂起。

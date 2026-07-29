@@ -945,6 +945,12 @@ def _shared_image_pool() -> ThreadPoolExecutor:
         return _IMAGE_POOL
 
 
+def effective_image_poll_timeout(size: str | None) -> int:
+    if OpenAIBackendAPI._is_4k_image_size(size):
+        return config.image_poll_timeout_4k_secs
+    return config.image_poll_timeout_secs
+
+
 def stream_image_outputs(
         backend: OpenAIBackendAPI,
         request: ConversationRequest,
@@ -1069,7 +1075,7 @@ def stream_image_outputs(
     # 当检测到文本回复（含 referenced_image_ids）时，使用更长的超时来轮询图片结果。
     # 因为上游可能将图片生成作为异步任务执行，SSE 流在工具完成前就断开了，
     # 导致对话文档中尚未写入图片工具的响应记录。
-    poll_timeout = config.image_poll_timeout_secs
+    poll_timeout = effective_image_poll_timeout(request.size)
     if is_text_reply and conversation_id:
         # 文本回复场景下图片可能仍在异步生成，使用更长超时（默认 120s → 额外 180s = 300s）
         poll_timeout = max(poll_timeout, 300)
@@ -1157,7 +1163,7 @@ def stream_image_outputs(
             })
             # 文本回复场景下，图片可能需要 4-5 分钟才能异步生成完成。
             # 使用 300s 超时并允许多次重试，避免因临时网络问题提前退出。
-            retry_poll_timeout = max(config.image_poll_timeout_secs, 300)
+            retry_poll_timeout = max(effective_image_poll_timeout(request.size), 300)
             MAX_POLL_RETRIES = 3
             for poll_attempt in range(1, MAX_POLL_RETRIES + 1):
                 try:
@@ -1261,7 +1267,7 @@ def stream_image_outputs(
     if should_poll_for_image and conversation_id:
         # 图片可能仍在异步处理中（上游 SSE 流在图片生成完成前就结束了）。
         # 使用 300s 超时并允许多次重试，避免因临时网络问题或图片尚未提交而提前退出。
-        retry_poll_timeout = max(config.image_poll_timeout_secs, 300)
+        retry_poll_timeout = max(effective_image_poll_timeout(request.size), 300)
         MAX_FALLBACK_POLL_RETRIES = 3
         for poll_attempt in range(1, MAX_FALLBACK_POLL_RETRIES + 1):
             retry_wait_secs = min(30.0 * poll_attempt, config.image_poll_initial_wait_secs * poll_attempt)
@@ -1556,11 +1562,12 @@ def _generate_single_image(
                 "error": str(exc),
                 "index": index,
             })
+            error_type, error_code = classify_image_text_error(str(exc))
             raise ImageGenerationError(
                 str(exc) or "Image generation was rejected by upstream policy.",
                 status_code=400,
-                error_type="invalid_request_error",
-                code="content_policy_violation",
+                error_type=error_type,
+                code=error_code,
                 account_email=account_email,
                 conversation_id=getattr(exc, "conversation_id", ""),
             ) from exc
