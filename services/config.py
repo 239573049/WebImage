@@ -37,6 +37,20 @@ DEFAULT_IMAGE_STORAGE = {
     "public_base_url": "",
 }
 
+DEFAULT_MEANS = {
+    "enabled": False,
+    "endpoint": "",
+    "access_key": "",
+    "secret_key": "",
+    "bucket": "",
+    "prefix": "chatgpt2api/images",
+    "public_base_url": "",
+    "region": "us-east-1",
+    "service": "s3",
+    "timeout_seconds": 60,
+    "verify_ssl": True,
+}
+
 DEFAULT_CHAT_COMPLETION_CACHE = {
     "enabled": True,
     "ttl_seconds": 60,
@@ -158,6 +172,27 @@ def _normalize_image_storage_settings(value: object) -> dict[str, object]:
         "webdav_password": str(source.get("webdav_password") or "").strip(),
         "webdav_root_path": root_path or str(DEFAULT_IMAGE_STORAGE["webdav_root_path"]),
         "public_base_url": str(source.get("public_base_url") or "").strip().rstrip("/"),
+    }
+
+
+def _normalize_means_settings(value: object) -> dict[str, object]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "enabled": _normalize_bool(source.get("enabled"), bool(DEFAULT_MEANS["enabled"])),
+        "endpoint": str(source.get("endpoint") or "").strip().rstrip("/"),
+        "access_key": str(source.get("access_key") or "").strip(),
+        "secret_key": str(source.get("secret_key") or "").strip(),
+        "bucket": str(source.get("bucket") or "").strip(),
+        "prefix": str(source.get("prefix") or DEFAULT_MEANS["prefix"]).strip().strip("/"),
+        "public_base_url": str(source.get("public_base_url") or "").strip().rstrip("/"),
+        "region": str(source.get("region") or DEFAULT_MEANS["region"]).strip() or str(DEFAULT_MEANS["region"]),
+        "service": str(source.get("service") or DEFAULT_MEANS["service"]).strip() or str(DEFAULT_MEANS["service"]),
+        "timeout_seconds": _normalize_positive_int(
+            source.get("timeout_seconds"),
+            int(DEFAULT_MEANS["timeout_seconds"]),
+            1,
+        ),
+        "verify_ssl": _normalize_bool(source.get("verify_ssl"), bool(DEFAULT_MEANS["verify_ssl"])),
     }
 
 
@@ -294,6 +329,20 @@ def _validate_image_storage_settings(settings: dict[str, object]) -> None:
         raise ValueError("启用 WebDAV 图片存储后必须填写 WebDAV URL")
     if not str(settings.get("webdav_password") or "").strip():
         raise ValueError("启用 WebDAV 图片存储后必须填写 WebDAV 密码")
+
+
+def _validate_means_settings(settings: dict[str, object]) -> None:
+    if not _normalize_bool(settings.get("enabled"), False):
+        return
+    required = {
+        "endpoint": "Means endpoint",
+        "access_key": "Means access_key",
+        "secret_key": "Means secret_key",
+        "bucket": "Means bucket",
+    }
+    missing = [label for key, label in required.items() if not str(settings.get(key) or "").strip()]
+    if missing:
+        raise ValueError(f"启用 Means 图片存储后必须填写：{', '.join(missing)}")
 
 
 @dataclass(frozen=True)
@@ -582,6 +631,7 @@ class ConfigStore:
         data["default_thinking_effort"] = self.default_thinking_effort
         data["backup"] = self.get_backup_settings()
         data["image_storage"] = self.get_image_storage_settings()
+        data["means"] = self.get_means_settings()
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
         data["third_party_apps"] = self.get_third_party_apps_settings()
@@ -617,6 +667,9 @@ class ConfigStore:
         if "image_storage" in next_data:
             next_data["image_storage"] = _normalize_image_storage_settings(next_data.get("image_storage"))
             _validate_image_storage_settings(next_data["image_storage"])
+        if "means" in next_data:
+            next_data["means"] = _normalize_means_settings(next_data.get("means"))
+            _validate_means_settings(next_data["means"])
         if "chat_completion_cache" in next_data:
             next_data["chat_completion_cache"] = _normalize_chat_completion_cache_settings(
                 next_data.get("chat_completion_cache")
@@ -642,6 +695,9 @@ class ConfigStore:
 
     def get_image_storage_settings(self) -> dict[str, object]:
         return _normalize_image_storage_settings(self.data.get("image_storage"))
+
+    def get_means_settings(self) -> dict[str, object]:
+        return _normalize_means_settings(self.data.get("means"))
 
     def get_chat_completion_cache_settings(self) -> dict[str, object]:
         return _normalize_chat_completion_cache_settings(self.data.get("chat_completion_cache"))

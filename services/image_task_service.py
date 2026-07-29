@@ -515,7 +515,7 @@ class ImageTaskService:
             data = format_image_result(
                 image_items,
                 "",  # prompt 已不重要，结果已经拿到了
-                "b64_json",
+                "url",
                 "",
                 int(time.time()),
             )["data"]

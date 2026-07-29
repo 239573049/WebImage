@@ -27,6 +27,10 @@ docker compose up -d
 
 启动前请先在 `config.json` 中设置 `auth-key`，也可以在 `docker-compose.yml` 中通过 `CHATGPT2API_AUTH_KEY` 覆盖。
 
+使用 Means 分布式对象存储返回图片 URL 时，参见
+[Means 图片存储配置](docs/means-image-storage.md) 和
+[配置示例](config.example.json)。
+
 - Web 面板：`http://localhost:3000`
 - API 地址：`http://localhost:3000/v1`
 - 数据目录：`./data`

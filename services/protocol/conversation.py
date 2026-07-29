@@ -14,6 +14,7 @@ import tiktoken
 from services.account_service import account_service
 from services.config import config
 from services.image_storage_service import image_storage_service
+from services.means_storage_service import means_storage_service
 from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
 from utils.helper import (
     IMAGE_MODELS,
@@ -149,7 +150,22 @@ def encode_images(images: Iterable[tuple[bytes, str, str]]) -> list[str]:
 
 
 def save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
+    if means_storage_service.enabled():
+        return means_storage_service.upload(image_data)
     return image_storage_service.save(image_data, base_url).url
+
+
+def normalize_image_response_format(value: object) -> str:
+    response_format = str(value or "b64_json").strip().lower()
+    if response_format not in {"b64_json", "url"}:
+        raise ImageGenerationError(
+            "response_format must be one of: b64_json, url",
+            status_code=400,
+            error_type="invalid_request_error",
+            code="invalid_value",
+            param="response_format",
+        )
+    return response_format
 
 
 def message_text(content: Any) -> str:
@@ -270,6 +286,7 @@ def format_image_result(
     created: int | None = None,
     message: str = "",
 ) -> dict[str, Any]:
+    response_format = normalize_image_response_format(response_format)
     data: list[dict[str, Any]] = []
     for item in items:
         b64_json = str(item.get("b64_json") or "").strip()
@@ -279,10 +296,9 @@ def format_image_result(
         if response_format == "b64_json":
             data.append({
                 "b64_json": b64_json,
-                "url": save_image_bytes(base64.b64decode(b64_json), base_url),
                 "revised_prompt": revised_prompt,
             })
-        else:
+        elif response_format == "url":
             data.append({
                 "url": save_image_bytes(base64.b64decode(b64_json), base_url),
                 "revised_prompt": revised_prompt,

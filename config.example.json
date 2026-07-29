@@ -1,0 +1,16 @@
+{
+  "auth-key": "replace-with-your-api-key",
+  "means": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:5178/s3/",
+    "access_key": "meansadmin",
+    "secret_key": "replace-with-your-means-secret",
+    "bucket": "generated-images",
+    "prefix": "chatgpt2api/images",
+    "public_base_url": "https://files.example.com/generated-images",
+    "region": "us-east-1",
+    "service": "s3",
+    "timeout_seconds": 60,
+    "verify_ssl": true
+  }
+}

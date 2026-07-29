@@ -356,6 +356,7 @@ class AccountService:
         from curl_cffi import requests
         from services.proxy_service import proxy_settings
 
+        client_id = str((account or {}).get("client_id") or self._OAUTH_CLIENT_ID).strip()
         session = requests.Session(**proxy_settings.build_session_kwargs(account=account, impersonate="chrome110", verify=True))
         try:
             response = session.post(
@@ -368,7 +369,7 @@ class AccountService:
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
-                    "client_id": self._OAUTH_CLIENT_ID,
+                    "client_id": client_id,
                 },
                 timeout=60,
             )
@@ -1104,7 +1105,15 @@ class AccountService:
 
     @staticmethod
     def _account_payload_token(item: dict) -> str:
-        return str(item.get("access_token") or item.get("accessToken") or "").strip()
+        credentials = item.get("credentials")
+        nested = credentials if isinstance(credentials, dict) else {}
+        return str(
+            item.get("access_token")
+            or item.get("accessToken")
+            or nested.get("access_token")
+            or nested.get("accessToken")
+            or ""
+        ).strip()
 
     @staticmethod
     def _prepare_account_payload(item: dict) -> dict | None:
@@ -1113,7 +1122,30 @@ class AccountService:
         access_token = AccountService._account_payload_token(item)
         if not access_token:
             return None
-        payload = dict(item)
+        credentials = item.get("credentials")
+        if isinstance(credentials, dict):
+            # Sub2API exports keep OAuth data under accounts[].credentials.
+            # Flatten the credentials so refresh_token/id_token are retained,
+            # while keeping the wrapper's `type=oauth` away from plan type.
+            payload = dict(credentials)
+            extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+            if not payload.get("email") and extra.get("email"):
+                payload["email"] = extra.get("email")
+            if not payload.get("last_refresh") and extra.get("last_refresh"):
+                payload["last_refresh"] = extra.get("last_refresh")
+            if item.get("name"):
+                payload["name"] = item.get("name")
+            if item.get("platform"):
+                payload["sub2api_platform"] = item.get("platform")
+            if item.get("type"):
+                payload["sub2api_auth_type"] = item.get("type")
+            for key in ("concurrency", "priority"):
+                if item.get(key) is not None:
+                    payload[key] = item.get(key)
+            payload["export_type"] = "codex"
+            payload["source_type"] = "codex"
+        else:
+            payload = dict(item)
         payload.pop("accessToken", None)
         payload["access_token"] = access_token
         # CPA/Codex 导出文件里的 `type=codex` 是导出格式，不是号池套餐类型。

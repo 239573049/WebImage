@@ -71,10 +71,51 @@ function getAccountJsonAccount(value: unknown): AccountImportPayload | null {
     return null;
   }
   const raw = value as Record<string, unknown>;
-  const tokenValue = raw.access_token ?? raw.accessToken;
+  const credentials =
+    raw.credentials && typeof raw.credentials === "object" && !Array.isArray(raw.credentials)
+      ? (raw.credentials as Record<string, unknown>)
+      : null;
+  const tokenValue = raw.access_token ?? raw.accessToken ?? credentials?.access_token ?? credentials?.accessToken;
   const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
   if (!token) {
     return null;
+  }
+
+  if (credentials) {
+    const extra =
+      raw.extra && typeof raw.extra === "object" && !Array.isArray(raw.extra)
+        ? (raw.extra as Record<string, unknown>)
+        : {};
+    const payload: AccountImportPayload = {
+      ...credentials,
+      access_token: token,
+      export_type: "codex",
+      source_type: "codex",
+    };
+    delete payload.accessToken;
+
+    if (!payload.email && typeof extra.email === "string") {
+      payload.email = extra.email;
+    }
+    if (!payload.last_refresh && typeof extra.last_refresh === "string") {
+      payload.last_refresh = extra.last_refresh;
+    }
+    if (typeof raw.name === "string" && raw.name.trim()) {
+      payload.name = raw.name;
+    }
+    if (typeof raw.platform === "string" && raw.platform.trim()) {
+      payload.sub2api_platform = raw.platform;
+    }
+    if (typeof raw.type === "string" && raw.type.trim()) {
+      payload.sub2api_auth_type = raw.type;
+    }
+    if (typeof raw.concurrency === "number") {
+      payload.concurrency = raw.concurrency;
+    }
+    if (typeof raw.priority === "number") {
+      payload.priority = raw.priority;
+    }
+    return payload;
   }
 
   const payload: AccountImportPayload = {
@@ -656,8 +697,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             <div className="space-y-2">
               <div className="text-sm font-medium text-stone-800">选择本地账号 JSON 文件</div>
               <div className="text-sm leading-6 text-stone-500">
-                支持本项目导出的单账号对象或全部账号数组，也兼容每个文件一个账号对象的 CPA JSON。
-                系统会自动提取 `access_token` 或 `accessToken`。
+                支持本项目导出的单账号对象或全部账号数组，也兼容 CPA JSON 与 Sub2API 导出文件。
+                系统会自动提取顶层 Token，或 `accounts[].credentials.access_token`。
               </div>
             </div>
             <Button
@@ -740,7 +781,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
         />
         <MethodCard
           title="导入账号 JSON 文件"
-          description="支持本项目导出的单账号 JSON 或全部账号数组，也兼容 CPA JSON 文件。"
+          description="支持本项目、CPA 与 Sub2API 导出的账号 JSON 文件。"
           icon={Files}
           onClick={() => setMethod("account-json")}
         />
@@ -807,7 +848,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
                       ? "粘贴 Codex 认证 JSON，系统会按 codex 来源导入。"
                     : method === "oauth"
                       ? "用浏览器跑一遍 OpenAI 标准 OAuth，拿回 refresh_token 后系统会自动续期。"
-                      : "支持读取本项目导出的单账号对象或全部账号数组，并在提交前做数量确认。"}
+                      : "支持读取本项目、CPA 或 Sub2API 导出的账号 JSON，并在提交前做数量确认。"}
             </DialogDescription>
           </DialogHeader>
 

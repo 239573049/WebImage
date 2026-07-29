@@ -2,7 +2,9 @@ import base64
 import json
 import unittest
 from typing import Any
+from unittest.mock import MagicMock, patch
 
+from api.accounts import _account_payload_token
 from services.account_service import AccountService
 
 
@@ -38,6 +40,16 @@ def make_jwt(payload: dict[str, Any]) -> str:
 
 
 class AccountExportTests(unittest.TestCase):
+    def test_api_extracts_token_from_sub2api_credentials(self) -> None:
+        token = _account_payload_token(
+            {
+                "type": "oauth",
+                "credentials": {"access_token": "nested_access_token"},
+            }
+        )
+
+        self.assertEqual(token, "nested_access_token")
+
     def test_build_export_items_uses_codex_shape_and_jwt_claims(self) -> None:
         access_token = make_jwt(
             {
@@ -112,6 +124,67 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(account["export_type"], "codex")
         self.assertEqual(account["refresh_token"], "rt_test")
         self.assertEqual(account["account_id"], "acct_123")
+
+    def test_add_account_items_supports_sub2api_export_shape(self) -> None:
+        service = AccountService(MemoryStorage())
+
+        result = service.add_account_items(
+            [
+                {
+                    "name": "ExampleAccount",
+                    "platform": "openai",
+                    "type": "oauth",
+                    "concurrency": 10,
+                    "priority": 1,
+                    "credentials": {
+                        "access_token": "sub2api_access_token",
+                        "refresh_token": "sub2api_refresh_token",
+                        "id_token": "sub2api_id_token",
+                        "account_id": "acct_sub2api",
+                        "email": "sub2api@example.com",
+                        "plan_type": "plus",
+                    },
+                    "extra": {
+                        "last_refresh": "2026-07-29T09:52:05+08:00",
+                    },
+                }
+            ]
+        )
+
+        account = service.get_account("sub2api_access_token")
+        self.assertEqual(result["added"], 1)
+        self.assertIsNotNone(account)
+        self.assertEqual(account["type"], "plus")
+        self.assertEqual(account["source_type"], "codex")
+        self.assertEqual(account["export_type"], "codex")
+        self.assertEqual(account["refresh_token"], "sub2api_refresh_token")
+        self.assertEqual(account["id_token"], "sub2api_id_token")
+        self.assertEqual(account["account_id"], "acct_sub2api")
+        self.assertEqual(account["email"], "sub2api@example.com")
+        self.assertEqual(account["last_refresh"], "2026-07-29T09:52:05+08:00")
+        self.assertEqual(account["sub2api_platform"], "openai")
+        self.assertEqual(account["sub2api_auth_type"], "oauth")
+
+    def test_refresh_uses_imported_sub2api_client_id(self) -> None:
+        service = AccountService(MemoryStorage())
+        response = MagicMock()
+        response.status_code = 200
+        response.text = '{"access_token":"new_access_token"}'
+        response.json.return_value = {"access_token": "new_access_token"}
+        session = MagicMock()
+        session.post.return_value = response
+
+        with (
+            patch("curl_cffi.requests.Session", return_value=session),
+            patch("services.proxy_service.proxy_settings.build_session_kwargs", return_value={}),
+        ):
+            result = service._request_access_token_refresh(
+                "sub2api_refresh_token",
+                {"client_id": "sub2api_client_id"},
+            )
+
+        self.assertEqual(result["access_token"], "new_access_token")
+        self.assertEqual(session.post.call_args.kwargs["data"]["client_id"], "sub2api_client_id")
 
 
 if __name__ == "__main__":
