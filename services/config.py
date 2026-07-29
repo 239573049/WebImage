@@ -331,6 +331,21 @@ def _validate_image_storage_settings(settings: dict[str, object]) -> None:
         raise ValueError("启用 WebDAV 图片存储后必须填写 WebDAV 密码")
 
 
+MEANS_ENV_PREFIX = "CHATGPT2API_MEANS_"
+
+
+def _means_settings_from_env() -> dict[str, object] | None:
+    """从环境变量读取 means 初始配置（CHATGPT2API_MEANS_*），未设置任何变量时返回 None"""
+    values: dict[str, object] = {}
+    for key in DEFAULT_MEANS:
+        raw = os.getenv(f"{MEANS_ENV_PREFIX}{key.upper()}")
+        if raw is not None and raw.strip():
+            values[key] = raw.strip()
+    if not values:
+        return None
+    return _normalize_means_settings(values)
+
+
 def _validate_means_settings(settings: dict[str, object]) -> None:
     if not _normalize_bool(settings.get("enabled"), False):
         return
@@ -402,6 +417,7 @@ class ConfigStore:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.data = self._load()
         self._storage_backend: StorageBackend | None = None
+        self._seed_means_from_env()
         if _is_invalid_auth_key(self.auth_key):
             raise ValueError(
                 "❌ auth-key 未设置！\n"
@@ -414,6 +430,25 @@ class ConfigStore:
 
     def _load(self) -> dict[str, object]:
         return _read_json_object(self.path, name="config.json")
+
+    def _seed_means_from_env(self) -> None:
+        """首次启动时用环境变量初始化 means 配置
+
+        仅当 config.json 中尚无 means 配置时生效；初始化后会持久化到 config.json，
+        之后以 config.json（及管理界面修改）为准，环境变量不再覆盖。
+        """
+        if "means" in self.data:
+            return
+        env_means = _means_settings_from_env()
+        if env_means is None:
+            return
+        try:
+            _validate_means_settings(env_means)
+        except ValueError as e:
+            raise ValueError(f"环境变量 means 配置无效：{e}") from e
+        self.data["means"] = env_means
+        self._save()
+        print(f"[config] Initialized means settings from {MEANS_ENV_PREFIX}* environment variables")
 
     def _save(self) -> None:
         self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
