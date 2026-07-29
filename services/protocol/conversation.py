@@ -265,19 +265,6 @@ _QUALITY_HINTS = {
     "low": "低清晰度",
 }
 
-_FOUR_K_PROMPT_TEMPLATE = """请生成真正的4K超高清图片。
-
-生成前请理解4K标准：4K UHD约为{size}像素，不是普通高清或简单放大效果。
-
-要求：
-- 严格按照我提供的 size 参数生成，保持比例，不得修改。
-- 尽可能达到原生4K画质，保留超高清细节。
-- 提升纹理、光影、锐度和整体质感。
-- 禁止低分辨率、模糊、噪点或降级输出。
-
-请确认理解4K标准后再生成。"""
-
-
 def _size_hint(size: str) -> str:
     match = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", size.strip())
     if not match:
@@ -293,21 +280,15 @@ def _size_hint(size: str) -> str:
     return f"请严格按照 {width}x{height} 的分辨率（{orientation}构图，宽高比 {width // divisor}:{height // divisor}）生成图片。"
 
 
-def _four_k_prompt(size: str) -> str:
-    return _FOUR_K_PROMPT_TEMPLATE.format(size=size.strip())
-
-
 def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
     hints = []
     size = (size or "").strip()
     if size and size.lower() != "auto":
         hints.append(_size_hint(size))
-        if OpenAIBackendAPI._is_4k_image_size(size):
-            hints.append(_four_k_prompt(size))
     quality = (quality or "").strip()
     if quality and quality.lower() != "auto":
         hint = _QUALITY_HINTS.get(quality.lower(), quality)
-        hints.append(f"输出图片清晰度要求：{hint}。")
+        hints.append(f"输出图片质量要求：{hint}。")
     return f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
 
 
@@ -945,12 +926,6 @@ def _shared_image_pool() -> ThreadPoolExecutor:
         return _IMAGE_POOL
 
 
-def effective_image_poll_timeout(size: str | None) -> int:
-    if OpenAIBackendAPI._is_4k_image_size(size):
-        return config.image_poll_timeout_4k_secs
-    return config.image_poll_timeout_secs
-
-
 def stream_image_outputs(
         backend: OpenAIBackendAPI,
         request: ConversationRequest,
@@ -1075,7 +1050,7 @@ def stream_image_outputs(
     # 当检测到文本回复（含 referenced_image_ids）时，使用更长的超时来轮询图片结果。
     # 因为上游可能将图片生成作为异步任务执行，SSE 流在工具完成前就断开了，
     # 导致对话文档中尚未写入图片工具的响应记录。
-    poll_timeout = effective_image_poll_timeout(request.size)
+    poll_timeout = config.image_poll_timeout_secs
     if is_text_reply and conversation_id:
         # 文本回复场景下图片可能仍在异步生成，使用更长超时（默认 120s → 额外 180s = 300s）
         poll_timeout = max(poll_timeout, 300)
@@ -1163,7 +1138,7 @@ def stream_image_outputs(
             })
             # 文本回复场景下，图片可能需要 4-5 分钟才能异步生成完成。
             # 使用 300s 超时并允许多次重试，避免因临时网络问题提前退出。
-            retry_poll_timeout = max(effective_image_poll_timeout(request.size), 300)
+            retry_poll_timeout = max(config.image_poll_timeout_secs, 300)
             MAX_POLL_RETRIES = 3
             for poll_attempt in range(1, MAX_POLL_RETRIES + 1):
                 try:
@@ -1267,7 +1242,7 @@ def stream_image_outputs(
     if should_poll_for_image and conversation_id:
         # 图片可能仍在异步处理中（上游 SSE 流在图片生成完成前就结束了）。
         # 使用 300s 超时并允许多次重试，避免因临时网络问题或图片尚未提交而提前退出。
-        retry_poll_timeout = max(effective_image_poll_timeout(request.size), 300)
+        retry_poll_timeout = max(config.image_poll_timeout_secs, 300)
         MAX_FALLBACK_POLL_RETRIES = 3
         for poll_attempt in range(1, MAX_FALLBACK_POLL_RETRIES + 1):
             retry_wait_secs = min(30.0 * poll_attempt, config.image_poll_initial_wait_secs * poll_attempt)

@@ -82,8 +82,6 @@ DEFAULT_CLIENT_BUILD_NUMBER = "6708908"
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_RESPONSES_MODEL = "gpt-5.5"
-FOUR_K_IMAGE_MODEL = "gpt-5.6-luna-wm"
-FOUR_K_THINKING_EFFORT = "standard"
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
 SEARCH_POLL_INTERVAL_SECS = 3.0
@@ -115,10 +113,6 @@ EDITABLE_PSD_EXPORT_FILE_RE = re.compile(r"(?:sandbox:)?(/mnt/data/[^\s\"'\)\]]+
 EDITABLE_PPT_EXPORT_FILE_RE = re.compile(r"(?:sandbox:)?(/mnt/data/[^\s\"'\)\]]+\.(?:pptx?|zip))", re.IGNORECASE)
 FILE_SERVICE_ID_RE = re.compile(r"file-service://([A-Za-z0-9_-]+)")
 FILE_ID_RE = re.compile(r"\b(file[-_](?!service\b)[A-Za-z0-9_-]+)\b")
-# 4k 生图走 code interpreter 沙盒，产物是沙盒文件路径而非 file-service 指针
-SANDBOX_IMAGE_PATH_RE = re.compile(
-    r"(?:sandbox:)?(/(?:workspace|mnt)/[^\s\"'\)\]]+\.(?:png|jpe?g|webp|gif))", re.IGNORECASE
-)
 # 真正的图片文件 ID 格式：file_00000000 + 24位十六进制字符（共32字符）
 REAL_IMAGE_FILE_ID_RE = re.compile(r"\bfile_00000000[a-f0-9]{24}\b")
 SEDIMENT_ID_RE = re.compile(r"sediment://([A-Za-z0-9_-]+)")
@@ -598,34 +592,6 @@ class OpenAIBackendAPI:
             return model_name, suffix.lower()
         return upstream_model, self._normalize_thinking_effort(config.default_thinking_effort)
 
-    @staticmethod
-    def _is_4k_image_size(size: str | None) -> bool:
-        normalized = str(size or "").strip().lower()
-        if not normalized:
-            return False
-        if normalized == "4k":
-            return True
-        match = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", normalized)
-        if not match:
-            return False
-        width = int(match.group(1))
-        height = int(match.group(2))
-        return max(width, height) >= 3840 and min(width, height) >= 2160
-
-    def _image_request_settings(self, model: str, size: str | None = None) -> tuple[str, str]:
-        if self._is_4k_image_size(size):
-            return FOUR_K_IMAGE_MODEL, FOUR_K_THINKING_EFFORT
-        return self._image_model_settings(model)
-
-    def _codex_response_settings(self, size: str | None = None) -> tuple[str, str]:
-        if self._is_4k_image_size(size):
-            return FOUR_K_IMAGE_MODEL, FOUR_K_THINKING_EFFORT
-        return CODEX_RESPONSES_MODEL, ""
-
-    @classmethod
-    def _image_conversation_origin(cls, size: str | None = None) -> str | None:
-        return "tpp" if cls._is_4k_image_size(size) else None
-
     def _image_headers(self, path: str, requirements: ChatRequirements, conduit_token: str = "", accept: str = "*/*") -> \
             Dict[str, str]:
         """构造图片链路请求头。"""
@@ -833,7 +799,7 @@ class OpenAIBackendAPI:
             raise RuntimeError("access_token is required for codex image endpoints")
         self._ensure_codex_source_account()
         path = "/backend-api/codex/responses"
-        upstream_model, thinking_effort = self._codex_response_settings(size)
+        upstream_model = CODEX_RESPONSES_MODEL
         payload = {
             "model": upstream_model,
             "instructions": CODEX_RESPONSES_INSTRUCTIONS,
@@ -850,8 +816,6 @@ class OpenAIBackendAPI:
             "tool_choice": {"type": "image_generation"},
             "stream": True,
         }
-        if thinking_effort:
-            payload["thinking_effort"] = thinking_effort
         request = urllib.request.Request(
             self.base_url + path,
             json.dumps(payload).encode(),
@@ -923,7 +887,7 @@ class OpenAIBackendAPI:
     ) -> str:
         """为图片生成准备 conduit token。"""
         path = "/backend-api/f/conversation/prepare"
-        upstream_model, thinking_effort = self._image_request_settings(model, size)
+        upstream_model, thinking_effort = self._image_model_settings(model)
         payload = {
             "action": "next",
             "fork_from_shared_post": False,
@@ -1064,7 +1028,7 @@ class OpenAIBackendAPI:
             references: Optional[list[Dict[str, Any]]] = None,
     ) -> requests.Response:
         """启动图片生成或编辑的 SSE 请求。"""
-        upstream_model, thinking_effort = self._image_request_settings(model, size)
+        upstream_model, thinking_effort = self._image_model_settings(model)
         references = references or []
         parts = [{
             "content_type": "image_asset_pointer",
@@ -1124,9 +1088,6 @@ class OpenAIBackendAPI:
             "paragen_cot_summary_display_override": "allow",
             "force_parallel_switch": "auto",
         }
-        conversation_origin = self._image_conversation_origin(size)
-        if conversation_origin:
-            payload["conversation_origin"] = conversation_origin
         if thinking_effort:
             payload["thinking_effort"] = thinking_effort
         path = "/backend-api/f/conversation"
@@ -2186,37 +2147,6 @@ class OpenAIBackendAPI:
                  "sediment_ids": sediment_ids})
         return sorted(records, key=lambda item: item["create_time"])
 
-    @classmethod
-    def _extract_sandbox_image_refs(cls, data: Dict[str, Any]) -> list[str]:
-        """提取沙盒生成的图片引用，编码为 sandbox:{message_id}:{sandbox_path}。"""
-        refs: list[str] = []
-        mapping = data.get("mapping") or {}
-        for message_id, node in mapping.items():
-            message = (node or {}).get("message") or {}
-            role = str(((message.get("author") or {}).get("role")) or "").strip().lower()
-            if role not in {"tool", "assistant"}:
-                continue
-            try:
-                blob = json.dumps({"content": message.get("content"), "metadata": message.get("metadata")}, ensure_ascii=False)
-            except (TypeError, ValueError):
-                continue
-            for path in SANDBOX_IMAGE_PATH_RE.findall(blob):
-                ref = f"sandbox:{message_id}:{path}"
-                if ref not in refs:
-                    refs.append(ref)
-        return refs
-
-    def _get_sandbox_image_download_url(self, conversation_id: str, message_id: str, sandbox_path: str) -> str:
-        path = f"/backend-api/conversation/{conversation_id}/interpreter/download"
-        response = self.session.get(
-            self.base_url + path,
-            headers=self._editable_download_headers(path, conversation_id, "/backend-api/conversation/{conversation_id}/interpreter/download"),
-            params={"message_id": message_id, "sandbox_path": sandbox_path},
-            timeout=60,
-        )
-        ensure_ok(response, path)
-        return self._download_url_from_response(response)
-
     @staticmethod
     def _find_content_policy_error_in_conversation(data: Dict[str, Any]) -> str:
         """从对话文档中查找内容政策违规错误消息。
@@ -2378,9 +2308,6 @@ class OpenAIBackendAPI:
                 for sediment_id in record["sediment_ids"]:
                     if sediment_id not in sediment_ids:
                         sediment_ids.append(sediment_id)
-
-            # 4k 生图产物可能只存在于沙盒，把沙盒引用计入命中判定
-            self._add_unique(file_ids, self._extract_sandbox_image_refs(conversation))
 
             # 检查对话文本中是否包含内容政策违规错误
             # 当上游拒绝生成图片时，错误消息会出现在对话文档的 assistant 消息中，
@@ -2552,11 +2479,7 @@ class OpenAIBackendAPI:
                 })
                 continue
             try:
-                if file_id.startswith("sandbox:"):
-                    _, message_id, sandbox_path = file_id.split(":", 2)
-                    url = self._get_sandbox_image_download_url(conversation_id, message_id, sandbox_path)
-                else:
-                    url = self._get_file_download_url(file_id)
+                url = self._get_file_download_url(file_id)
             except Exception as exc:
                 logger.debug({
                     "event": "image_download_url_failed",
@@ -2752,9 +2675,7 @@ class OpenAIBackendAPI:
         self._report_progress("starting_generation")
         response = self._start_image_generation(prompt, requirements, conduit_token, model, size, references)
         self._report_progress("generating")
-        # 4k 生图耗时更长，SSE 硬上限同步放宽
-        hard_cap = config.image_poll_timeout_4k_secs if self._is_4k_image_size(size) else config.image_poll_timeout_secs
-        yield from self._iter_sse_payloads_capped(response, float(hard_cap))
+        yield from self._iter_sse_payloads_capped(response, float(config.image_poll_timeout_secs))
 
     def _iter_sse_payloads_capped(self, response: Any, hard_cap_secs: float) -> Iterator[str]:
         """按墙钟硬上限消费图片 SSE 流，避免上游异常时长连接被无限挂起。
