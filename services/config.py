@@ -509,9 +509,17 @@ class ConfigStore:
     @property
     def image_scheduler_max_workers(self) -> int:
         try:
-            return max(1, min(128, int(self.data.get("image_scheduler_max_workers", 32))))
+            return max(1, min(1024, int(self.data.get("image_scheduler_max_workers", 32))))
         except (TypeError, ValueError):
             return 32
+
+    @property
+    def api_threadpool_tokens(self) -> int:
+        """AnyIO run_in_threadpool 全局线程数（Starlette 默认仅 40，生图长任务会占满并拖住所有接口）。"""
+        try:
+            return max(40, min(2048, int(self.data.get("api_threadpool_tokens", 256))))
+        except (TypeError, ValueError):
+            return 256
 
     @property
     def image_account_validation_ttl_secs(self) -> float:
@@ -674,6 +682,7 @@ class ConfigStore:
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
         data["image_scheduler_max_workers"] = self.image_scheduler_max_workers
+        data["api_threadpool_tokens"] = self.api_threadpool_tokens
         data["image_account_validation_ttl_secs"] = self.image_account_validation_ttl_secs
         data["image_upload_cache_ttl_secs"] = self.image_upload_cache_ttl_secs
         data["image_parallel_generation"] = self.image_parallel_generation

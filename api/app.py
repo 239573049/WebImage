@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from threading import Event
 
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -20,6 +21,8 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # AnyIO 默认仅 40 线程，生图等长任务会占满并阻塞所有 run_in_threadpool 调用
+        anyio.to_thread.current_default_thread_limiter().total_tokens = config.api_threadpool_tokens
         stop_event = Event()
         thread = start_limited_account_watcher(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
