@@ -296,6 +296,8 @@ def create_router(app_version: str) -> APIRouter:
     @router.get("/health", response_model=None)
     async def health_dashboard(format: str = Query(default="html")):
         from services.account_service import account_service as acct_svc
+        from services.image_runtime_repository import image_runtime_repository
+        from services.image_task_service import image_task_service
         stats = acct_svc.get_stats()
         storage = config.get_storage_backend()
         storage_health = storage.health_check()
@@ -308,6 +310,11 @@ def create_router(app_version: str) -> APIRouter:
             "storage": {"backend": storage.get_backend_info(), "health": storage_health},
             "proxy_runtime": proxy_settings.get_runtime_status(),
             "accounts": stats,
+            "image_runtime": {
+                "queue": image_task_service.runtime_stats(),
+                "account_health": image_runtime_repository.health_stats(),
+                "database": image_runtime_repository.database_health(),
+            },
         }
         if format == "json":
             return stats_json

@@ -472,6 +472,27 @@ class ConfigStore:
             return 3
 
     @property
+    def image_scheduler_max_workers(self) -> int:
+        try:
+            return max(1, min(128, int(self.data.get("image_scheduler_max_workers", 32))))
+        except (TypeError, ValueError):
+            return 32
+
+    @property
+    def image_account_validation_ttl_secs(self) -> float:
+        try:
+            return max(0.0, float(self.data.get("image_account_validation_ttl_secs", 20.0)))
+        except (TypeError, ValueError):
+            return 20.0
+
+    @property
+    def image_upload_cache_ttl_secs(self) -> float:
+        try:
+            return max(0.0, float(self.data.get("image_upload_cache_ttl_secs", 600.0)))
+        except (TypeError, ValueError):
+            return 600.0
+
+    @property
     def image_parallel_generation(self) -> bool:
         value = self.data.get("image_parallel_generation", True)
         if isinstance(value, str):
@@ -617,6 +638,9 @@ class ConfigStore:
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_scheduler_max_workers"] = self.image_scheduler_max_workers
+        data["image_account_validation_ttl_secs"] = self.image_account_validation_ttl_secs
+        data["image_upload_cache_ttl_secs"] = self.image_upload_cache_ttl_secs
         data["image_parallel_generation"] = self.image_parallel_generation
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always

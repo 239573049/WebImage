@@ -58,6 +58,10 @@ class AccountRefreshRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
 
 
+class AccountHealthResetRequest(BaseModel):
+    access_tokens: list[str] = Field(default_factory=list)
+
+
 class AccountExportRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
     format: Literal["json", "zip"] = "json"
@@ -219,6 +223,17 @@ def create_router() -> APIRouter:
     async def get_accounts(authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return {"items": account_service.list_accounts()}
+
+    @router.post("/api/accounts/health/reset")
+    async def reset_account_health(
+        body: AccountHealthResetRequest,
+        authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        access_tokens = _unique_tokens(body.access_tokens)
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        return await run_in_threadpool(account_service.reset_image_health, access_tokens)
 
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):

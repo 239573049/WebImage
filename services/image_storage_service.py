@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,6 +14,7 @@ from fastapi import HTTPException
 from PIL import Image
 
 from services.config import DATA_DIR, config
+from services.image_runtime_repository import ImageRuntimeRepository, image_runtime_repository
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
@@ -76,23 +76,6 @@ def _local_image_path(relative_path: str) -> Path:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="image not found") from exc
     return path
-
-
-def _read_json_object(path: Path) -> dict[str, object]:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _write_json_object(path: Path, data: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
 
 
 class WebDAVClient:
@@ -165,8 +148,14 @@ class WebDAVClient:
 
 
 class ImageStorageService:
-    def __init__(self, index_file: Path = IMAGE_INDEX_FILE):
+    def __init__(
+        self,
+        index_file: Path = IMAGE_INDEX_FILE,
+        repository: ImageRuntimeRepository | None = None,
+    ):
         self.index_file = index_file
+        runtime_path = index_file if index_file.suffix == ".db" else index_file.with_suffix(".db")
+        self.repository = repository or ImageRuntimeRepository(runtime_path)
         self._index_lock = IMAGE_INDEX_LOCK
 
     def settings(self) -> dict[str, object]:
@@ -176,18 +165,14 @@ class ImageStorageService:
         return _clean(self.settings().get("mode")) or "local"
 
     def _load_index(self) -> dict[str, dict[str, object]]:
-        raw = _read_json_object(self.index_file)
-        items = raw.get("items")
-        if not isinstance(items, dict):
-            return {}
-        return {str(key): value for key, value in items.items() if isinstance(value, dict)}
+        return self.repository.list_images()
 
     def _load_clean_index(self) -> dict[str, dict[str, object]]:
         items = self._load_index()
         return {rel: item for rel, item in items.items() if _is_image_rel(rel)}
 
     def _save_index(self, items: dict[str, dict[str, object]]) -> None:
-        _write_json_object(self.index_file, {"items": items})
+        self.repository.replace_images(items)
 
     def _public_url(self, rel: str, base_url: str | None = None) -> str:
         settings = self.settings()
@@ -203,7 +188,6 @@ class ImageStorageService:
         return f"{relative_dir.as_posix()}/{filename}"
 
     def save(self, image_data: bytes, base_url: str | None = None) -> StoredImage:
-        config.cleanup_old_images()
         rel = self.make_relative_path(image_data)
         mode = self.mode()
         if mode not in {"local", "webdav", "both"}:
@@ -237,10 +221,8 @@ class ImageStorageService:
         }
         if dimensions:
             item["width"], item["height"] = dimensions
-        with self._index_lock:
-            items = self._load_clean_index()
-            items[rel] = item
-            self._save_index(items)
+        # 单行 upsert，不再读取并重写完整图片索引
+        self.repository.upsert_image(rel, item)
         return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=str(item["storage"]), size=len(image_data))
 
     def get_bytes(self, rel: str) -> bytes:
@@ -343,17 +325,15 @@ class ImageStorageService:
             path.unlink()
             removed = True
         with self._index_lock:
-            items = self._load_clean_index()
-            item = items.get(safe_rel, {})
+            item = self.repository.get_image(safe_rel) or {}
             if item.get("webdav"):
                 try:
                     removed = WebDAVClient(self.settings()).delete(safe_rel) or removed
                 except ImageStorageError:
                     if not removed:
                         raise
-            if safe_rel in items:
-                items.pop(safe_rel, None)
-                self._save_index(items)
+            if item:
+                self.repository.delete_image(safe_rel)
         return removed
 
     def sync_all(self) -> dict[str, int]:
@@ -402,4 +382,7 @@ class ImageStorageService:
         return WebDAVClient(self.settings()).test()
 
 
-image_storage_service = ImageStorageService()
+image_storage_service = ImageStorageService(
+    DATA_DIR / "image_runtime.db",
+    repository=image_runtime_repository,
+)

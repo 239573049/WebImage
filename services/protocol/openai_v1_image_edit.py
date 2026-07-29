@@ -61,6 +61,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     response_format = normalize_image_response_format(body.get("response_format"))
     base_url = str(body.get("base_url") or "") or None
     progress_callback = body.get("progress_callback")
+    meta_callback = body.get("meta_callback")
     encoded_images = encode_images(images)
     if not encoded_images:
         raise ImageGenerationError("image is required")
@@ -75,6 +76,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         images=encoded_images,
         message_as_error=True,
         progress_callback=progress_callback,
+        meta_callback=meta_callback,
     ))
     if body.get("stream"):
         return stream_image_chunks(outputs)

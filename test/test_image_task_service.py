@@ -6,6 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
+from services.image_runtime_repository import ImageRuntimeRepository
 from services.image_task_service import ImageTaskService
 
 
@@ -110,39 +111,72 @@ class ImageTaskServiceTests(unittest.TestCase):
     def test_startup_marks_unfinished_tasks_as_error(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "image_tasks.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "tasks": [
-                            {
-                                "id": "queued-task",
-                                "owner_id": "owner-1",
-                                "status": "queued",
-                                "mode": "generate",
-                                "model": "gpt-image-2",
-                                "created_at": "2099-01-01 00:00:00",
-                                "updated_at": "2099-01-01 00:00:00",
-                            },
-                            {
-                                "id": "running-task",
-                                "owner_id": "owner-1",
-                                "status": "running",
-                                "mode": "generate",
-                                "model": "gpt-image-2",
-                                "created_at": "2099-01-01 00:00:00",
-                                "updated_at": "2099-01-01 00:00:00",
-                            },
-                        ]
-                    }
-                ),
-                encoding="utf-8",
+            repository = ImageRuntimeRepository(path.with_suffix(".db"))
+            now = time.time()
+            repository.insert_task(
+                {
+                    "id": "running-task",
+                    "owner_id": "owner-1",
+                    "status": "running",
+                    "mode": "generate",
+                    "model": "gpt-image-2",
+                    "created_at": "2099-01-01 00:00:00",
+                    "updated_at": "2099-01-01 00:00:00",
+                    "created_ts": now,
+                    "updated_ts": now,
+                },
+                {"prompt": "cat", "model": "gpt-image-2"},
+                dict(OWNER),
+            )
+            repository.insert_task(
+                {
+                    "id": "resumable-task",
+                    "owner_id": "owner-1",
+                    "status": "running",
+                    "mode": "generate",
+                    "model": "gpt-image-2",
+                    "conversation_id": "conv-1",
+                    "account_key": "deadbeef" * 8,
+                    "created_at": "2099-01-01 00:00:00",
+                    "updated_at": "2099-01-01 00:00:00",
+                    "created_ts": now,
+                    "updated_ts": now,
+                },
+                {"prompt": "dog", "model": "gpt-image-2"},
+                dict(OWNER),
+            )
+            repository.insert_task(
+                {
+                    "id": "queued-task",
+                    "owner_id": "owner-1",
+                    "status": "queued",
+                    "mode": "generate",
+                    "model": "gpt-image-2",
+                    "created_at": "2099-01-01 00:00:00",
+                    "updated_at": "2099-01-01 00:00:00",
+                    "created_ts": now,
+                    "updated_ts": now,
+                },
+                {"prompt": "cat", "model": "gpt-image-2"},
+                dict(OWNER),
             )
 
             service = self.make_service(path)
-            result = service.list_tasks(OWNER, ["queued-task", "running-task"])
 
-            self.assertEqual([item["status"] for item in result["items"]], ["error", "error"])
-            self.assertTrue(all("已中断" in item.get("error", "") for item in result["items"]))
+            # running 且无可恢复上游标识的任务标记为中断错误
+            result = service.list_tasks(OWNER, ["running-task"])
+            self.assertEqual(result["items"][0]["status"], "error")
+            self.assertIn("已中断", result["items"][0]["error"])
+
+            # queued 任务从数据库恢复执行
+            task = wait_for_task(service, OWNER, "queued-task", "success")
+            self.assertEqual(task["data"][0]["url"], "http://example.test/image.png")
+
+            # running 且已有 conversation_id/account_key 的任务只恢复轮询，不标记中断；
+            # 测试环境无对应账号，恢复轮询会快速失败为“无法找回账号”
+            resumable = wait_for_task(service, OWNER, "resumable-task", "error", timeout=5.0)
+            self.assertNotIn("已中断", str(resumable.get("error") or ""))
+            self.assertIn("无法找回", str(resumable.get("error") or ""))
 
 
 if __name__ == "__main__":

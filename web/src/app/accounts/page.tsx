@@ -11,6 +11,7 @@ import {
   CircleOff,
   Copy,
   Download,
+  HeartPulse,
   Link2,
   LoaderCircle,
   LogIn,
@@ -50,6 +51,7 @@ import {
   fetchReLoginProgress,
   reLoginAccounts,
   refreshAccounts,
+  resetAccountsHealth,
   testProxy,
   updateAccount,
   type Account,
@@ -186,6 +188,7 @@ function AccountsPageContent() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
+  const [isResettingHealth, setIsResettingHealth] = useState(false);
   const [progress, setProgress] = useState<{
     visible: boolean;
     current: number;
@@ -324,6 +327,26 @@ function AccountsPageContent() {
       toast.error(message);
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleResetHealth = async (tokens: string[]) => {
+    if (tokens.length === 0) {
+      toast.error("请先选择要重置健康状态的账户");
+      return;
+    }
+    setIsResettingHealth(true);
+    try {
+      const data = await resetAccountsHealth(tokens);
+      if (Array.isArray(data.items)) {
+        setAccounts(data.items);
+      }
+      toast.success(`已重置 ${tokens.length} 个账号的健康状态`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "重置健康状态失败";
+      toast.error(message);
+    } finally {
+      setIsResettingHealth(false);
     }
   };
 
@@ -1010,6 +1033,16 @@ function AccountsPageContent() {
                 </Button>
                 <Button
                   variant="ghost"
+                  className="h-8 rounded-lg px-3 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                  onClick={() => void handleResetHealth(selectedTokens)}
+                  disabled={selectedTokens.length === 0 || isResettingHealth}
+                  title="清除选中账号的健康分/熔断状态，立即重新参与图片调度"
+                >
+                  {isResettingHealth ? <LoaderCircle className="size-4 animate-spin" /> : <HeartPulse className="size-4" />}
+                  重置健康状态
+                </Button>
+                <Button
+                  variant="ghost"
                   className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
                   onClick={() => void handleDeleteTokens(abnormalTokens)}
                   disabled={abnormalTokens.length === 0 || isDeleting}
@@ -1052,6 +1085,7 @@ function AccountsPageContent() {
                     <th className="w-32 px-4 py-3">创建时间</th>
                     <th className="w-24 px-4 py-3">额度</th>
                     <th className="w-40 px-4 py-3">恢复时间</th>
+                    <th className="w-28 px-4 py-3">健康</th>
                     <th className="w-18 px-4 py-3">在途</th>
                     <th className="w-18 px-4 py-3">成功</th>
                     <th className="w-18 px-4 py-3">失败</th>
@@ -1142,6 +1176,58 @@ function AccountsPageContent() {
                               <div className="space-y-0.5">
                                 {restore.relative ? <div className="font-medium text-stone-700">{restore.relative}</div> : null}
                                 <div>{restore.absolute}</div>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const score = account.health_score ?? 100;
+                            const state = account.health_state ?? "healthy";
+                            const stateLabel: Record<string, string> = {
+                              healthy: "健康",
+                              degraded: "降级",
+                              probation: "观察",
+                              open: "熔断",
+                              half_open: "半开",
+                            };
+                            const stateColor =
+                              state === "open"
+                                ? "text-rose-600"
+                                : state === "half_open" || state === "probation"
+                                  ? "text-amber-600"
+                                  : state === "degraded"
+                                    ? "text-orange-500"
+                                    : "text-emerald-600";
+                            const cooldownUntil = account.health_cooldown_until;
+                            const cooldownLeft =
+                              typeof cooldownUntil === "number" && cooldownUntil * 1000 > Date.now()
+                                ? Math.ceil(cooldownUntil - Date.now() / 1000)
+                                : 0;
+                            const tooltip = [
+                              `健康分 ${score}`,
+                              `状态 ${stateLabel[state] ?? state}`,
+                              account.health_success_rate != null
+                                ? `成功率 ${(account.health_success_rate * 100).toFixed(1)}%`
+                                : null,
+                              account.health_latency_ms
+                                ? `延迟 ${(account.health_latency_ms / 1000).toFixed(1)}s`
+                                : null,
+                              account.health_consecutive_failures
+                                ? `连续失败 ${account.health_consecutive_failures}`
+                                : null,
+                              cooldownLeft > 0 ? `冷却剩余 ${Math.floor(cooldownLeft / 60)}分${cooldownLeft % 60}秒` : null,
+                              account.health_last_error ? `最近错误: ${account.health_last_error}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join("\n");
+                            return (
+                              <div className={cn("text-xs leading-5", stateColor)} title={tooltip}>
+                                <div className="font-semibold">{score}</div>
+                                <div>
+                                  {stateLabel[state] ?? state}
+                                  {cooldownLeft > 0 ? ` ${Math.ceil(cooldownLeft / 60)}m` : ""}
+                                </div>
                               </div>
                             );
                           })()}

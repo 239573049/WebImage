@@ -13,6 +13,7 @@ import tiktoken
 
 from services.account_service import account_service
 from services.config import config
+from services.image_runtime_repository import account_health_key
 from services.image_storage_service import image_storage_service
 from services.means_storage_service import means_storage_service
 from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
@@ -289,18 +290,22 @@ def format_image_result(
     response_format = normalize_image_response_format(response_format)
     data: list[dict[str, Any]] = []
     for item in items:
+        raw_bytes = item.get("_bytes")
+        raw_bytes = bytes(raw_bytes) if isinstance(raw_bytes, (bytes, bytearray, memoryview)) else None
         b64_json = str(item.get("b64_json") or "").strip()
-        if not b64_json:
+        if raw_bytes is None and not b64_json:
             continue
         revised_prompt = str(item.get("revised_prompt") or prompt).strip() or prompt
         if response_format == "b64_json":
             data.append({
-                "b64_json": b64_json,
+                # bytes 输入仅编码一次；base64 输入直接透传，避免重复转换
+                "b64_json": b64_json or base64.b64encode(raw_bytes or b"").decode("ascii"),
                 "revised_prompt": revised_prompt,
             })
         elif response_format == "url":
+            payload = raw_bytes if raw_bytes is not None else base64.b64decode(b64_json)
             data.append({
-                "url": save_image_bytes(base64.b64decode(b64_json), base_url),
+                "url": save_image_bytes(payload, base_url),
                 "revised_prompt": revised_prompt,
             })
     result: dict[str, Any] = {"created": created or int(time.time()), "data": data}
@@ -323,6 +328,7 @@ class ConversationRequest:
     base_url: str | None = None
     message_as_error: bool = False
     progress_callback: Any = None  # Callable[[str], None] | None
+    meta_callback: Any = None  # Callable[[dict[str, Any]], None] | None：上报 account_key/conversation_id
 
 
 @dataclass
@@ -851,6 +857,22 @@ def _remove_image_conversation_later(
     threading.Thread(target=_run, name=f"remove-image-conversation-{conversation_id}", daemon=True).start()
 
 
+_IMAGE_POOL_LOCK = threading.Lock()
+_IMAGE_POOL: ThreadPoolExecutor | None = None
+
+
+def _shared_image_pool() -> ThreadPoolExecutor:
+    """全局共享生图线程池（最大 image_scheduler_max_workers），替代每请求嵌套线程池。"""
+    global _IMAGE_POOL
+    with _IMAGE_POOL_LOCK:
+        if _IMAGE_POOL is None:
+            _IMAGE_POOL = ThreadPoolExecutor(
+                max_workers=config.image_scheduler_max_workers,
+                thread_name_prefix="image-gen",
+            )
+        return _IMAGE_POOL
+
+
 def stream_image_outputs(
         backend: OpenAIBackendAPI,
         request: ConversationRequest,
@@ -1018,7 +1040,7 @@ def stream_image_outputs(
         if request.progress_callback:
             request.progress_callback("receiving_image")
         image_items = [
-            {"b64_json": base64.b64encode(image_data).decode("ascii")}
+            {"_bytes": image_data}
             for image_data in backend.download_image_bytes(image_urls)
         ]
         data = format_image_result(
@@ -1115,7 +1137,7 @@ def stream_image_outputs(
                     if request.progress_callback:
                         request.progress_callback("receiving_image")
                     image_items = [
-                        {"b64_json": base64.b64encode(image_data).decode("ascii")}
+                        {"_bytes": image_data}
                         for image_data in backend.download_image_bytes(image_urls)
                     ]
                     data = format_image_result(
@@ -1227,7 +1249,7 @@ def stream_image_outputs(
                 if request.progress_callback:
                     request.progress_callback("receiving_image")
                 image_items = [
-                    {"b64_json": base64.b64encode(image_data).decode("ascii")}
+                    {"_bytes": image_data}
                     for image_data in backend.download_image_bytes(image_urls)
                 ]
                 data = format_image_result(
@@ -1345,8 +1367,24 @@ def _generate_single_image(
         emitted_for_token = False
         returned_message = False
         returned_result = False
+        account_attempt_started = time.time()
+        def mark_account_result(success: bool, failure_kind: str = "transient", error: str = "") -> None:
+            account_service.mark_image_result(
+                token,
+                success,
+                latency_ms=(time.time() - account_attempt_started) * 1000,
+                failure_kind=failure_kind,
+                error=error[:500],
+            )
+        def emit_meta(**meta: Any) -> None:
+            if request.meta_callback:
+                try:
+                    request.meta_callback(dict(meta))
+                except Exception:
+                    pass
         account = account_service.get_account(token) or {}
         account_email = str(account.get("email") or "").strip()
+        emit_meta(account_key=account_health_key(token))
         logger.debug({
             "event": "image_account_lookup",
             "token_prefix": token[:12] + "..." if len(token) > 12 else token,
@@ -1364,6 +1402,8 @@ def _generate_single_image(
             last_conversation_id = ""
             try:
                 for output in stream_fn(backend, request, index, total):
+                    if output.conversation_id and output.conversation_id != last_conversation_id:
+                        emit_meta(conversation_id=output.conversation_id)
                     last_conversation_id = output.conversation_id or last_conversation_id
                     if account_email and not output.account_email:
                         output.account_email = account_email
@@ -1387,10 +1427,10 @@ def _generate_single_image(
             finally:
                 _remove_image_conversation_later(backend, last_conversation_id, success=returned_result)
             if returned_message:
-                account_service.mark_image_result(token, False)
+                mark_account_result(False, error="upstream returned a text response")
                 return outputs
             if not returned_result:
-                account_service.mark_image_result(token, False)
+                mark_account_result(False, error="upstream completed without generating images")
                 if emitted_for_token:
                     conv_id = outputs[-1].conversation_id if outputs else ""
                     raise ImageGenerationError(
@@ -1402,10 +1442,10 @@ def _generate_single_image(
                         conversation_id=conv_id,
                     )
                 return outputs
-            account_service.mark_image_result(token, True)
+            mark_account_result(True)
             return outputs
         except ImagePollTimeoutError as exc:
-            account_service.mark_image_result(token, False)
+            mark_account_result(False, error=str(exc))
             if account_email:
                 setattr(exc, "account_email", account_email)
             # 轮询超时：换账号重试
@@ -1431,7 +1471,7 @@ def _generate_single_image(
                 raise
             raise
         except ImageContentPolicyError as exc:
-            account_service.mark_image_result(token, False)
+            mark_account_result(False, failure_kind="neutral", error=str(exc))
             logger.warning({
                 "event": "image_stream_content_policy_error",
                 "request_token": token,
@@ -1448,7 +1488,8 @@ def _generate_single_image(
                 conversation_id=getattr(exc, "conversation_id", ""),
             ) from exc
         except ImageGenerationError as exc:
-            account_service.mark_image_result(token, False)
+            failure_kind = "neutral" if getattr(exc, "status_code", 0) == 400 and getattr(exc, "code", "") == "content_policy_violation" else "transient"
+            mark_account_result(False, failure_kind=failure_kind, error=str(exc))
             if account_email and not getattr(exc, "account_email", ""):
                 exc.account_email = account_email
             error_text = str(exc)
@@ -1490,7 +1531,6 @@ def _generate_single_image(
             })
             raise
         except Exception as exc:
-            account_service.mark_image_result(token, False)
             last_error = str(exc)
             logger.warning({
                 "event": "image_stream_fail",
@@ -1500,12 +1540,22 @@ def _generate_single_image(
                 "index": index,
             })
             if not emitted_for_token and is_token_invalid_error(last_error):
+                # 401/403：先刷新 token；刷新成功进入 half-open 探测，失败沿用异常账号处理
+                account_service.invalidate_image_validation_cache(token)
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="image_stream")
                 if refreshed_token and refreshed_token != token:
-                    token = refreshed_token
+                    account_service.mark_image_result(
+                        refreshed_token, False, failure_kind="auth_refreshed", error=last_error[:500],
+                    )
                     continue
+                mark_account_result(False, error=last_error)
                 account_service.remove_invalid_token(token, "image_stream")
                 continue
+            lowered = last_error.lower()
+            if "429" in last_error or "rate limit" in lowered or "rate_limit" in lowered or "too many requests" in lowered:
+                mark_account_result(False, failure_kind="rate_limit", error=last_error)
+            else:
+                mark_account_result(False, error=last_error)
             # TLS/SSL 连接错误：自动重试
             if not emitted_for_token and is_tls_connection_error(last_error):
                 tls_retry_count += 1
@@ -1572,55 +1622,42 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
         "n": request.n,
         "model": request.model,
     })
-    # 每张图片一个线程，同时启动
+    # 使用共享全局线程池，取消每请求嵌套线程池
     futures = {}
-    results: dict[int, list[ImageOutput]] = {}
-    errors: dict[int, Exception] = {}
-    with ThreadPoolExecutor(max_workers=request.n) as executor:
-        for index in range(1, request.n + 1):
-            future = executor.submit(_generate_single_image, request, index, request.n)
-            futures[future] = index
+    executor = _shared_image_pool()
+    for index in range(1, request.n + 1):
+        future = executor.submit(_generate_single_image, request, index, request.n)
+        futures[future] = index
 
-        # 按完成顺序收集结果
-        for future in as_completed(futures):
-            index = futures[future]
-            try:
-                results[index] = future.result()
-            except Exception as exc:
-                errors[index] = exc
-                logger.warning({
-                    "event": "image_parallel_generation_error",
-                    "index": index,
-                    "error": str(exc)[:300],
-                })
-
-    # yield 结果：跳过索引顺序限制，不再让低索引失败阻塞高索引成功结果
+    # 真实流式：按完成顺序即时 yield，第一张完成的图片立刻返回给客户端，
+    # 不再等待整批结果收集完毕
     emitted = False
     last_error = ""
-    # 先 yield 所有成功的结果
-    for index in range(1, request.n + 1):
-        if index in results:
-            for output in results[index]:
-                emitted = True
-                yield output
-        elif index in errors:
-            last_error = str(errors[index])
-            if not emitted:
-                logger.warning({
-                    "event": "image_parallel_failure_before_success",
-                    "failed_index": index,
-                    "error": last_error[:200],
-                })
+    failed_indexes: list[int] = []
+    for future in as_completed(futures):
+        index = futures[future]
+        try:
+            outputs = future.result()
+        except Exception as exc:
+            last_error = str(exc)
+            failed_indexes.append(index)
+            logger.warning({
+                "event": "image_parallel_generation_error",
+                "index": index,
+                "error": last_error[:300],
+            })
+            continue
+        for output in outputs:
+            emitted = True
+            yield output
 
     # 如果有失败但也有成功，记录警告
     if emitted:
-        for index in range(1, request.n + 1):
-            if index in errors:
-                logger.warning({
-                    "event": "image_parallel_partial_failure",
-                    "failed_index": index,
-                    "error": str(errors[index])[:200],
-                })
+        for index in failed_indexes:
+            logger.warning({
+                "event": "image_parallel_partial_failure",
+                "failed_index": index,
+            })
 
     if not emitted:
         if not last_error:

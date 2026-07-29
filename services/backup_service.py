@@ -8,6 +8,7 @@ import os
 import random
 import subprocess
 import tarfile
+import tempfile
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -629,6 +630,17 @@ class BackupService:
             if include.get("logs"):
                 self._add_file_to_archive(archive, DATA_DIR / "logs.jsonl", "data/logs.jsonl")
             if include.get("image_tasks"):
+                # 用 SQLite online backup API 生成 image_runtime.db 一致性快照，
+                # 避免直接复制正在写入的 WAL 数据库导致快照损坏
+                try:
+                    from services.image_runtime_repository import image_runtime_repository
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        snapshot_path = Path(tmp_dir) / "image_runtime.db"
+                        image_runtime_repository.backup_to(snapshot_path)
+                        self._add_file_to_archive(archive, snapshot_path, "data/image_runtime.db")
+                except Exception:
+                    pass
+                # 历史 JSON 文件（如仍存在）一并保留，便于回滚旧版本
                 self._add_file_to_archive(archive, DATA_DIR / "image_tasks.json", "data/image_tasks.json")
                 self._add_file_to_archive(archive, IMAGE_INDEX_FILE, "data/image_index.json")
             if include.get("accounts_snapshot"):

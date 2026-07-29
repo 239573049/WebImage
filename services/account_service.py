@@ -17,6 +17,7 @@ from services.log_service import (
     LOG_TYPE_ACCOUNT,
     log_service,
 )
+from services.image_runtime_repository import image_runtime_repository
 from services.storage.base import StorageBackend
 from utils.helper import anonymize_token
 
@@ -52,6 +53,10 @@ class AccountService:
         self._token_refresh_lock = Lock()
         self._image_slot_condition = Condition(self._lock)
         self._index = 0
+        self._image_scheduler_current: dict[str, float] = {}
+        self._image_validation_cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
+        self._image_validation_locks: dict[str, Lock] = {}
+        self._image_validation_guard = Lock()
         self._accounts = self._load_accounts()
         self._image_inflight: dict[str, int] = {}
         self._token_aliases: dict[str, str] = {}
@@ -424,6 +429,12 @@ class AccountService:
                 old_inflight = int(self._image_inflight.pop(old_token, 0))
                 if old_inflight:
                     self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
+                # 同步迁移健康记录和未完成任务的账号引用
+                try:
+                    image_runtime_repository.migrate_account_key(old_token, new_token)
+                except Exception:
+                    pass
+                self._image_validation_cache.pop(old_token, None)
             self._accounts[new_token] = account
             self._save_accounts()
             self._image_slot_condition.notify_all()
@@ -895,16 +906,21 @@ class AccountService:
             plan_types: set[str] | tuple[str, ...] | None = None,
     ) -> list[str]:
         excluded = set(excluded_tokens or set())
-        return [
-            token
-            for item in self._accounts.values()
-            if self._is_image_account_available(item)
-               and self._account_matches_plan_type(item, plan_type)
-               and self._account_matches_any_plan_type(item, plan_types)
-               and self._account_matches_source_type(item, source_type)
-               and (token := item.get("access_token") or "")
-               and token not in excluded
-        ]
+        result: list[str] = []
+        for item in self._accounts.values():
+            token = str(item.get("access_token") or "")
+            if (
+                token
+                and token not in excluded
+                and self._is_image_account_available(item)
+                and self._account_matches_plan_type(item, plan_type)
+                and self._account_matches_any_plan_type(item, plan_types)
+                and self._account_matches_source_type(item, source_type)
+            ):
+                health = image_runtime_repository.get_health(token)
+                if health.get("health_state") != "open":
+                    result.append(token)
+        return result
 
     def _list_available_candidate_tokens(
             self,
@@ -913,12 +929,33 @@ class AccountService:
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
     ) -> list[str]:
-        max_concurrency = max(1, int(config.image_account_concurrency or 1))
-        return [
-            token
-            for token in self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
-            if int(self._image_inflight.get(token, 0)) < max_concurrency
-        ]
+        result: list[str] = []
+        for token in self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types):
+            health = image_runtime_repository.get_health(token)
+            state = str(health.get("health_state") or "healthy")
+            max_concurrency = 1 if state in {"probation", "half_open"} else max(
+                1, int(config.image_account_concurrency or 1)
+            )
+            if int(self._image_inflight.get(token, 0)) < max_concurrency:
+                result.append(token)
+        return result
+
+    def _select_image_candidate(self, tokens: list[str]) -> str:
+        """Health-priority smooth weighted round robin; healthy peers remain even."""
+        weights: dict[str, float] = {}
+        for token in tokens:
+            score = max(1, int(image_runtime_repository.get_health(token).get("health_score") or 1))
+            weights[token] = max(0.01, (score / 100.0) ** 2)
+        active = set(tokens)
+        for token in list(self._image_scheduler_current):
+            if token not in active:
+                self._image_scheduler_current.pop(token, None)
+        total = sum(weights.values())
+        for token, weight in weights.items():
+            self._image_scheduler_current[token] = self._image_scheduler_current.get(token, 0.0) + weight
+        chosen = max(tokens, key=lambda token: (self._image_scheduler_current[token], -tokens.index(token)))
+        self._image_scheduler_current[chosen] -= total
+        return chosen
 
     def _acquire_next_candidate_token(
             self,
@@ -936,7 +973,7 @@ class AccountService:
                     )
                 tokens = self._list_available_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
                 if tokens:
-                    access_token = tokens[self._index % len(tokens)]
+                    access_token = self._select_image_candidate(tokens)
                     self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
                     return access_token
@@ -953,6 +990,51 @@ class AccountService:
             else:
                 self._image_inflight[access_token] = current_inflight - 1
             self._image_slot_condition.notify_all()
+
+    def _validate_account_cached(self, access_token: str) -> dict[str, Any] | None:
+        """远程可用性校验：20 秒缓存 + single-flight，同一账号并发只发一次远程请求。"""
+        ttl = config.image_account_validation_ttl_secs
+        with self._image_validation_guard:
+            cached = self._image_validation_cache.get(access_token)
+            if cached and time.time() - cached[0] <= ttl:
+                return dict(cached[1]) if isinstance(cached[1], dict) else None
+            flight_lock = self._image_validation_locks.setdefault(access_token, Lock())
+        with flight_lock:
+            with self._image_validation_guard:
+                cached = self._image_validation_cache.get(access_token)
+                if cached and time.time() - cached[0] <= ttl:
+                    return dict(cached[1]) if isinstance(cached[1], dict) else None
+            account = self.fetch_remote_info(access_token, "get_available_access_token")
+            with self._image_validation_guard:
+                self._image_validation_cache[access_token] = (
+                    time.time(),
+                    dict(account) if isinstance(account, dict) else None,
+                )
+            return account
+
+    def invalidate_image_validation_cache(self, access_token: str) -> None:
+        """401、429、quota 清零或生成失败时立即失效验证缓存。"""
+        with self._image_validation_guard:
+            self._image_validation_cache.pop(access_token, None)
+            self._image_validation_locks.pop(access_token, None)
+
+    def image_dynamic_capacity(self) -> int:
+        """所有可用账号容量之和：健康/降级=image_account_concurrency，观察/半开=1，熔断=0。"""
+        per_account = max(1, int(config.image_account_concurrency or 1))
+        with self._lock:
+            accounts = [dict(item) for item in self._accounts.values()]
+        total = 0
+        for item in accounts:
+            if not self._is_image_account_available(item):
+                continue
+            token = str(item.get("access_token") or "")
+            if not token:
+                continue
+            state = str(image_runtime_repository.get_health(token).get("health_state") or "healthy")
+            if state == "open":
+                continue
+            total += 1 if state in {"probation", "half_open"} else per_account
+        return total
 
     def get_available_access_token(
             self,
@@ -976,9 +1058,16 @@ class AccountService:
             )
             attempted_tokens.add(access_token)
             try:
-                account = self.fetch_remote_info(access_token, "get_available_access_token")
+                account = self._validate_account_cached(access_token)
             except Exception:
                 self.release_image_slot(access_token)
+                self.invalidate_image_validation_cache(access_token)
+                image_runtime_repository.record_health_result(
+                    access_token,
+                    False,
+                    failure_kind="transient",
+                    error="account validation failed",
+                )
                 continue
             # fetch_remote_info 内部可能因 token rotation 导致 access_token 变化，
             # 把新 token 也加入排除列表，防止重复尝试
@@ -991,7 +1080,9 @@ class AccountService:
                     and self._account_matches_any_plan_type(account or {}, plan_types)
                     and self._account_matches_source_type(account or {}, source_type)
             ):
-                return str((account or {}).get("access_token") or access_token)
+                resolved_token = str((account or {}).get("access_token") or access_token)
+                image_runtime_repository.record_assignment(resolved_token)
+                return resolved_token
             self.release_image_slot(access_token)
         raise RuntimeError(
             f"no available {plan_type or source_type or ''} image quota (tried {len(attempted_tokens)} tokens)".replace("  ", " ").strip()
@@ -1082,6 +1173,7 @@ class AccountService:
                 account = dict(item)
                 token = account.get("access_token") or ""
                 account["image_inflight"] = int(self._image_inflight.get(token, 0))
+                account.update(image_runtime_repository.get_health(token))
                 result.append(account)
             return result
 
@@ -1330,10 +1422,39 @@ class AccountService:
                 return False
         return True
 
-    def mark_image_result(self, access_token: str, success: bool) -> dict | None:
+    def mark_image_result(
+        self,
+        access_token: str,
+        success: bool,
+        *,
+        latency_ms: float | None = None,
+        failure_kind: str = "transient",
+        error: str = "",
+    ) -> dict | None:
         if not access_token:
             return None
         self.release_image_slot(access_token)
+        cooldown_until: float | None = None
+        if not success:
+            # 生成失败立即失效验证缓存，下次调度重新校验
+            if failure_kind != "neutral":
+                self.invalidate_image_validation_cache(access_token)
+            if failure_kind == "rate_limit":
+                account = self.get_account(access_token) or {}
+                restore_at = str(account.get("restore_at") or "").strip()
+                if restore_at:
+                    try:
+                        cooldown_until = datetime.fromisoformat(restore_at.replace("Z", "+00:00")).timestamp()
+                    except ValueError:
+                        cooldown_until = None
+        image_runtime_repository.record_health_result(
+            access_token,
+            success,
+            latency_ms=latency_ms,
+            failure_kind=failure_kind,
+            cooldown_until=cooldown_until,
+            error=error,
+        )
         with self._lock:
             access_token = self._resolve_access_token_locked(access_token)
             current = self._accounts.get(access_token)
@@ -1363,6 +1484,28 @@ class AccountService:
             self._save_accounts()
             return dict(account)
         return None
+
+    def reset_image_health(self, access_tokens: list[str]) -> dict[str, object]:
+        tokens = list(dict.fromkeys(str(token or "").strip() for token in access_tokens if str(token or "").strip()))
+        with self._lock:
+            known = [self._resolve_access_token_locked(token) for token in tokens if self._resolve_access_token_locked(token) in self._accounts]
+            for token in known:
+                self._image_scheduler_current.pop(token, None)
+                self._image_validation_cache.pop(token, None)
+        image_runtime_repository.reset_health(known)
+        return {"reset": len(known), "items": self.list_accounts()}
+
+    def find_token_by_account_key(self, account_key: str) -> str:
+        """通过 token SHA-256 内部 account_key 找回原始 access_token。"""
+        from services.image_runtime_repository import account_health_key
+        key = str(account_key or "").strip()
+        if not key:
+            return ""
+        with self._lock:
+            for token in self._accounts:
+                if account_health_key(token) == key:
+                    return token
+        return ""
 
     def fetch_remote_info(
         self,

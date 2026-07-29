@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -22,11 +23,22 @@ from PIL import Image
 
 from services.account_service import account_service
 from services.config import config
+from services.image_runtime_repository import account_health_key
 from services.proxy_service import proxy_settings
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
 from utils.turnstile import solve_turnstile_token
+
+
+# 参考图上传缓存：(account_key, 图片 SHA-256) -> (缓存时间, 文件元数据)，TTL 见 image_upload_cache_ttl_secs
+_UPLOAD_CACHE: dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
+_UPLOAD_CACHE_LOCK = threading.Lock()
+
+# 首页 PoW 脚本引导缓存：按代理出口缓存 5 分钟，高并发下避免每个任务都拉取首页
+_BOOTSTRAP_CACHE: dict[str, tuple[float, list[str], str]] = {}
+_BOOTSTRAP_CACHE_LOCK = threading.Lock()
+_BOOTSTRAP_CACHE_TTL_SECS = 300.0
 
 
 class InvalidAccessTokenError(RuntimeError):
@@ -911,7 +923,11 @@ class OpenAIBackendAPI:
         return base64.b64decode(payload)
 
     def _upload_image(self, image: str, file_name: str = "image.png") -> Dict[str, Any]:
-        """上传一张 base64 图片，返回底层文件元数据。"""
+        """上传一张 base64 图片，返回底层文件元数据。
+
+        同一账号内相同内容的参考图命中缓存（account_key + 图片 SHA-256，
+        TTL 由 image_upload_cache_ttl_secs 控制），避免重复上传；上传失败自动重试一次。
+        """
         data = self._decode_image_base64(image)
         if (
                 image
@@ -923,6 +939,28 @@ class OpenAIBackendAPI:
             candidate_path = Path(os.path.expanduser(image))
             if candidate_path.exists() and candidate_path.is_file():
                 file_name = candidate_path.name
+        ttl = float(config.image_upload_cache_ttl_secs)
+        cache_key = (account_health_key(self.access_token), hashlib.sha256(data).hexdigest())
+        now = time.time()
+        if ttl > 0:
+            with _UPLOAD_CACHE_LOCK:
+                entry = _UPLOAD_CACHE.get(cache_key)
+                if entry and now - entry[0] < ttl:
+                    return dict(entry[1])
+        try:
+            meta = self._do_upload_image(data, file_name)
+        except Exception:
+            # 上传失败重试一次（网络抖动/上游瞬时错误）
+            meta = self._do_upload_image(data, file_name)
+        if ttl > 0:
+            with _UPLOAD_CACHE_LOCK:
+                _UPLOAD_CACHE[cache_key] = (time.time(), dict(meta))
+                expired = [key for key, value in _UPLOAD_CACHE.items() if time.time() - value[0] >= ttl]
+                for key in expired:
+                    _UPLOAD_CACHE.pop(key, None)
+        return meta
+
+    def _do_upload_image(self, data: bytes, file_name: str) -> Dict[str, Any]:
         image = Image.open(BytesIO(data))
         width, height = image.size
         mime_type = Image.MIME.get(image.format, "image/png")
@@ -2204,30 +2242,33 @@ class OpenAIBackendAPI:
         last_task_error = ""
         while _remaining() > 0:
             attempt += 1
-            # 在每次轮询时，检查 /backend-api/tasks/ 是否有错误（仅记录，不中断）
-            # 内容政策违规检测通过对话文本进行（在 _find_content_policy_error_in_conversation 中）
-            last_task_error = ""
-            try:
-                tasks = self._query_backend_tasks(conversation_id=conversation_id, timeout_secs=5.0)
-                for task in tasks:
-                    is_error, error_msg, metadata = self.check_task_error(task)
-                    if is_error and error_msg:
-                        last_task_error = error_msg
-                        logger.info({
-                            "event": "image_poll_task_error_not_blocking",
-                            "conversation_id": conversation_id,
-                            "attempt": attempt,
-                            "error_msg": error_msg,
-                            "metadata": metadata,
-                        })
-            except Exception as exc:
-                # tasks 查询失败不影响正常轮询流程
-                logger.debug({
-                    "event": "image_poll_task_check_failed",
-                    "conversation_id": conversation_id,
-                    "attempt": attempt,
-                    "error": str(exc),
-                })
+            # /backend-api/tasks 错误检查降频：仅在第 1 次、每第 3 次或接近 deadline 时查询，
+            # 减少高并发下的上游请求量（仅记录，不中断；
+            # 内容政策违规检测通过对话文本进行，见 _find_content_policy_error_in_conversation）
+            near_deadline = _remaining() < interval * 2
+            if attempt == 1 or attempt % 3 == 0 or near_deadline:
+                last_task_error = ""
+                try:
+                    tasks = self._query_backend_tasks(conversation_id=conversation_id, timeout_secs=5.0)
+                    for task in tasks:
+                        is_error, error_msg, metadata = self.check_task_error(task)
+                        if is_error and error_msg:
+                            last_task_error = error_msg
+                            logger.info({
+                                "event": "image_poll_task_error_not_blocking",
+                                "conversation_id": conversation_id,
+                                "attempt": attempt,
+                                "error_msg": error_msg,
+                                "metadata": metadata,
+                            })
+                except Exception as exc:
+                    # tasks 查询失败不影响正常轮询流程
+                    logger.debug({
+                        "event": "image_poll_task_check_failed",
+                        "conversation_id": conversation_id,
+                        "attempt": attempt,
+                        "error": str(exc),
+                    })
 
             try:
                 conversation = self._get_conversation(conversation_id)
@@ -2650,7 +2691,18 @@ class OpenAIBackendAPI:
                 pass
 
     def _bootstrap(self) -> None:
-        """预热首页，并提取 PoW 相关脚本引用。"""
+        """预热首页，并提取 PoW 相关脚本引用（按代理出口缓存 5 分钟）。"""
+        try:
+            egress = str(proxy_settings.get_profile(account=self.account).proxy_url or "direct")
+        except Exception:
+            egress = "direct"
+        now = time.time()
+        with _BOOTSTRAP_CACHE_LOCK:
+            entry = _BOOTSTRAP_CACHE.get(egress)
+            if entry and now - entry[0] < _BOOTSTRAP_CACHE_TTL_SECS:
+                self.pow_script_sources = list(entry[1])
+                self.pow_data_build = entry[2]
+                return
         response = self.session.get(
             self.base_url + "/",
             headers=self._bootstrap_headers(),
@@ -2660,6 +2712,8 @@ class OpenAIBackendAPI:
         self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
         if not self.pow_script_sources:
             self.pow_script_sources = [DEFAULT_POW_SCRIPT]
+        with _BOOTSTRAP_CACHE_LOCK:
+            _BOOTSTRAP_CACHE[egress] = (time.time(), list(self.pow_script_sources), self.pow_data_build)
 
     def _get_chat_requirements(self) -> ChatRequirements:
         """获取当前模式对话所需的 sentinel token（prepare + finalize 两步流程）。"""

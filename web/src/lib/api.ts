@@ -35,6 +35,22 @@ export type Account = {
   fail: number;
   /** 当前图片在途数(正在生成、尚未结束的图片数)。号池空闲时持续 > 0 表示并发槽位泄漏。 */
   image_inflight?: number;
+  /** 图片调度健康分 0-100 */
+  health_score?: number;
+  /** 健康状态: healthy / degraded / probation / open / half_open */
+  health_state?: string;
+  /** 近期成功率 EWMA 0-1 */
+  health_success_rate?: number;
+  /** 延迟 EWMA (ms) */
+  health_latency_ms?: number;
+  /** 连续失败次数 */
+  health_consecutive_failures?: number;
+  /** 熔断冷却截止时间戳(秒) */
+  health_cooldown_until?: number | null;
+  /** 累计分配次数 */
+  image_assigned?: number;
+  /** 最近一次失败原因 */
+  health_last_error?: string | null;
   last_used_at?: string | null;
   proxy?: string | null;
 };
@@ -376,6 +392,13 @@ export async function deleteAccounts(tokens: string[]) {
 
 export async function refreshAccounts(accessTokens: string[]) {
   return httpRequest<{ progress_id: string }>("/api/accounts/refresh", {
+    method: "POST",
+    body: { access_tokens: accessTokens },
+  });
+}
+
+export async function resetAccountsHealth(accessTokens: string[]) {
+  return httpRequest<{ items: Account[] }>("/api/accounts/health/reset", {
     method: "POST",
     body: { access_tokens: accessTokens },
   });

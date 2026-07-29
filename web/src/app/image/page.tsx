@@ -267,6 +267,11 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+// 轮询退避：前台 2s，页面隐藏时降频到 10s，减少后台无效请求
+function pollDelayMs() {
+  return typeof document !== "undefined" && document.visibilityState === "hidden" ? 10000 : 2000;
+}
+
 function pickFallbackConversationId(conversations: ImageConversation[]) {
   const activeConversation = conversations.find((conversation) =>
     conversation.turns.some((turn) => turn.status === "queued" || turn.status === "generating"),
@@ -1259,7 +1264,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             break;
           }
 
-          await sleep(2000);
+          await sleep(pollDelayMs());
           try {
             const taskList = await fetchImageTasks(loadingTaskIds);
             consecutiveErrors = 0;
