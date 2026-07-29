@@ -82,6 +82,19 @@
     "webdav_root_path": "chatgpt2api/images",
     "public_base_url": ""
   },
+  "means": {
+    "enabled": true,
+    "endpoint": "https://storage.means.asia/",
+    "access_key": "x",
+    "secret_key": "x",
+    "bucket": "gpt-image",
+    "prefix": "chatgpt2api/images",
+    "public_base_url": "https://storage.means.asia/gpt-image",
+    "region": "us-east-1",
+    "service": "s3",
+    "timeout_seconds": 60,
+    "verify_ssl": true
+  },
   "image_min_free_mb": 500,
   "chat_completion_cache": {
     "enabled": true,
