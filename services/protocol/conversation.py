@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 import threading
 import time
@@ -231,12 +232,39 @@ def assistant_history_messages(messages: list[dict[str, Any]]) -> list[str]:
     return [str(item.get("content") or "") for item in messages if item.get("role") == "assistant" and item.get("content")]
 
 
+_QUALITY_HINTS = {
+    "high": "高清晰度（高质量、细节丰富）",
+    "hd": "高清晰度（高质量、细节丰富）",
+    "medium": "中等清晰度",
+    "standard": "标准清晰度",
+    "low": "低清晰度",
+}
+
+
+def _size_hint(size: str) -> str:
+    match = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", size.strip())
+    if not match:
+        return f"请严格按照尺寸 {size} 生成图片。"
+    width, height = int(match.group(1)), int(match.group(2))
+    if width > height:
+        orientation = "横版"
+    elif width < height:
+        orientation = "竖版"
+    else:
+        orientation = "正方形"
+    divisor = math.gcd(width, height) or 1
+    return f"请严格按照 {width}x{height} 的分辨率（{orientation}构图，宽高比 {width // divisor}:{height // divisor}）生成图片。"
+
+
 def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
     hints = []
-    if size:
-        hints.append(f"输出图片尺寸为 {size}。")
-    if quality:
-        hints.append(f"输出图片质量为 {quality}。")
+    size = (size or "").strip()
+    if size and size.lower() != "auto":
+        hints.append(_size_hint(size))
+    quality = (quality or "").strip()
+    if quality and quality.lower() != "auto":
+        hint = _QUALITY_HINTS.get(quality.lower(), quality)
+        hints.append(f"输出图片清晰度要求：{hint}。")
     return f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
 
 

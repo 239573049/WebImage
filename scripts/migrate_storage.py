@@ -76,13 +76,15 @@ def migrate_data(from_backend: str, to_backend: str):
         os.environ["STORAGE_BACKEND"] = from_backend
         from_storage = create_storage_backend(DATA_DIR)
         accounts = from_storage.load_accounts()
-        print(f"[migrate] Loaded {len(accounts)} accounts from {from_backend}")
+        auth_keys = from_storage.load_auth_keys()
+        print(f"[migrate] Loaded {len(accounts)} accounts, {len(auth_keys)} auth keys from {from_backend}")
         
         # 写入目标后端
         os.environ["STORAGE_BACKEND"] = to_backend
         to_storage = create_storage_backend(DATA_DIR)
         to_storage.save_accounts(accounts)
-        print(f"[migrate] Saved {len(accounts)} accounts to {to_backend}")
+        to_storage.save_auth_keys(auth_keys)
+        print(f"[migrate] Saved {len(accounts)} accounts, {len(auth_keys)} auth keys to {to_backend}")
         
         print(f"[migrate] Migration completed successfully!")
         

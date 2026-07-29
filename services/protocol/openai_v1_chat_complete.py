@@ -161,7 +161,7 @@ def chat_messages_from_body(body: dict[str, Any]) -> list[dict[str, Any]]:
     raise HTTPException(status_code=400, detail={"error": "messages or prompt is required"})
 
 
-def chat_image_args(body: dict[str, Any]) -> tuple[str, str, int, list[tuple[bytes, str, str]]]:
+def chat_image_args(body: dict[str, Any]) -> tuple[str, str, int, list[tuple[bytes, str, str]], str | None, str]:
     model = str(body.get("model") or "gpt-image-2").strip() or "gpt-image-2"
     prompt = extract_chat_prompt(body)
     if not prompt:
@@ -170,7 +170,9 @@ def chat_image_args(body: dict[str, Any]) -> tuple[str, str, int, list[tuple[byt
         (data, f"image_{idx}.png", mime)
         for idx, (data, mime) in enumerate(extract_chat_image(body), start=1)
     ]
-    return model, prompt, parse_image_count(body.get("n")), images
+    size = str(body.get("size") or "").strip() or None
+    quality = str(body.get("quality") or "auto").strip() or "auto"
+    return model, prompt, parse_image_count(body.get("n")), images, size, quality
 
 
 def text_chat_parts(body: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
@@ -230,11 +232,13 @@ def image_result_content(result: dict[str, Any]) -> str:
 
 
 def image_chat_response(body: dict[str, Any]) -> dict[str, Any]:
-    model, prompt, n, images = chat_image_args(body)
+    model, prompt, n, images, size, quality = chat_image_args(body)
     result = collect_image_outputs(stream_image_outputs_with_pool(ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
+        size=size,
+        quality=quality,
         response_format="b64_json",
         images=encode_images(images) or None,
     )))
@@ -242,18 +246,20 @@ def image_chat_response(body: dict[str, Any]) -> dict[str, Any]:
     usage = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
         input_image_tokens=count_image_inputs_tokens(images, model),
-        output_tokens=count_image_output_items_tokens(result.get("data")),
+        output_tokens=count_image_output_items_tokens(result.get("data"), size, quality),
     )
     response["usage"] = chat_usage_from_image_usage(usage)
     return response
 
 
 def image_chat_events(body: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    model, prompt, n, images = chat_image_args(body)
+    model, prompt, n, images, size, quality = chat_image_args(body)
     image_outputs = stream_image_outputs_with_pool(ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
+        size=size,
+        quality=quality,
         response_format="b64_json",
         images=encode_images(images) or None,
     ))

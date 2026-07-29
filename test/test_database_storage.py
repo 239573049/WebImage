@@ -157,3 +157,55 @@ def test_save_auth_keys_rejects_duplicate_ids_and_rolls_back(tmp_path):
 
     assert "key-a" not in str(exc_info.value)
     assert backend.load_auth_keys() == [original]
+
+
+def test_factory_defaults_to_sqlite_and_migrates_legacy_json(tmp_path, monkeypatch):
+    from services.storage.factory import create_storage_backend
+
+    monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    accounts_path = tmp_path / "accounts.json"
+    auth_keys_path = tmp_path / "auth_keys.json"
+    accounts_path.write_text(
+        json.dumps([{"access_token": "token-a", "name": "A"}]),
+        encoding="utf-8",
+    )
+    auth_keys_path.write_text(
+        json.dumps({"items": [{"id": "key-a", "name": "K"}]}),
+        encoding="utf-8",
+    )
+
+    backend = create_storage_backend(tmp_path)
+
+    assert isinstance(backend, DatabaseStorageBackend)
+    assert (tmp_path / "accounts.db").exists()
+    assert backend.load_accounts() == [{"access_token": "token-a", "name": "A"}]
+    assert backend.load_auth_keys() == [{"id": "key-a", "name": "K"}]
+    # 旧文件被重命名为备份，不会重复导入
+    assert not accounts_path.exists()
+    assert not auth_keys_path.exists()
+    assert (tmp_path / "accounts.json.migrated").exists()
+    assert (tmp_path / "auth_keys.json.migrated").exists()
+
+
+def test_factory_migration_skips_when_database_already_has_data(tmp_path, monkeypatch):
+    from services.storage.factory import create_storage_backend
+
+    monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    existing = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'accounts.db'}")
+    existing.save_accounts([{"access_token": "token-db", "name": "DB"}])
+
+    accounts_path = tmp_path / "accounts.json"
+    accounts_path.write_text(
+        json.dumps([{"access_token": "token-json", "name": "JSON"}]),
+        encoding="utf-8",
+    )
+
+    backend = create_storage_backend(tmp_path)
+
+    assert backend.load_accounts() == [{"access_token": "token-db", "name": "DB"}]
+    # 数据库已有数据时不迁移也不重命名旧文件
+    assert accounts_path.exists()

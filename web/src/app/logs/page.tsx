@@ -42,6 +42,10 @@ function getUrls(item: SystemLog | null) {
   return Array.isArray(urls) ? urls.filter((url): url is string => typeof url === "string") : [];
 }
 
+function isLocalImageUrl(url: string) {
+  return url.includes("/images/");
+}
+
 function getStatus(item: SystemLog) {
   const status = item.detail?.status;
   if (status === "success") return "成功";
@@ -64,7 +68,9 @@ function LogsContent() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingItems, setDeletingItems] = useState<SystemLog[]>([]);
   const detailUrls = getUrls(detailLog);
-  const detailImages = detailUrls.map((url, index) => ({ id: `${index}`, src: url }));
+  const detailImageUrls = detailUrls.filter(isLocalImageUrl);
+  const detailLinkUrls = detailUrls.filter((url) => !isLocalImageUrl(url));
+  const detailImages = detailImageUrls.map((url, index) => ({ id: `${index}`, src: url }));
   const isCallLog = type === LogType.Call;
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
@@ -206,6 +212,8 @@ function LogsContent() {
               <TableBody>
                 {currentRows.map((item) => {
                   const urls = getUrls(item);
+                  const imageUrls = urls.filter(isLocalImageUrl);
+                  const linkUrls = urls.filter((url) => !isLocalImageUrl(url));
                   return (
                     <TableRow key={item.id} className="text-stone-600">
                       <TableCell>
@@ -225,19 +233,36 @@ function LogsContent() {
                       {isCallLog ? (
                         <TableCell>
                           {urls.length ? (
-                            <div className="flex items-center gap-1.5">
-                              {urls.slice(0, 3).map((url, imageIndex) => (
-                                <button
-                                  key={`${url}-${imageIndex}`}
-                                  type="button"
-                                  className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
-                                  onClick={() => openLogImage(item, imageIndex)}
-                                  title="预览图片"
+                            <div className="flex flex-col gap-1">
+                              {imageUrls.length ? (
+                                <div className="flex items-center gap-1.5">
+                                  {imageUrls.slice(0, 3).map((url, imageIndex) => (
+                                    <button
+                                      key={`${url}-${imageIndex}`}
+                                      type="button"
+                                      className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
+                                      onClick={() => openLogImage(item, imageIndex)}
+                                      title="预览图片"
+                                    >
+                                      <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
+                                    </button>
+                                  ))}
+                                  {imageUrls.length > 3 ? <span className="text-xs text-stone-400">+{imageUrls.length - 3}</span> : null}
+                                </div>
+                              ) : null}
+                              {linkUrls.slice(0, 2).map((url, linkIndex) => (
+                                <a
+                                  key={`${url}-${linkIndex}`}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="max-w-[140px] truncate text-xs text-sky-600 hover:underline"
+                                  title={url}
                                 >
-                                  <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
-                                </button>
+                                  {url}
+                                </a>
                               ))}
-                              {urls.length > 3 ? <span className="text-xs text-stone-400">+{urls.length - 3}</span> : null}
+                              {linkUrls.length > 2 ? <span className="text-xs text-stone-400">+{linkUrls.length - 2}</span> : null}
                             </div>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-xs text-stone-400">
@@ -293,9 +318,18 @@ function LogsContent() {
                     </div>
                   ))}
               </div>
-              {detailUrls.length ? (
+              {detailLinkUrls.length ? (
+                <div className="space-y-1 rounded-xl border border-stone-200 bg-white p-4 text-sm">
+                  {detailLinkUrls.map((url) => (
+                    <a key={url} href={url} target="_blank" rel="noreferrer" className="block truncate text-sky-600 hover:underline" title={url}>
+                      {url}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+              {detailImageUrls.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-                  {detailUrls.map((url, index) => (
+                  {detailImageUrls.map((url, index) => (
                     <button
                       key={url}
                       type="button"
