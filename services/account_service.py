@@ -22,8 +22,13 @@ from services.storage.base import StorageBackend
 from utils.helper import anonymize_token
 from utils.log import logger
 
-# image_account_concurrency=0 时单账号不限并发，用一个足够大的哨兵值参与比较
-_UNLIMITED_CONCURRENCY = 1 << 30
+
+class ImageQuotaBusyError(RuntimeError):
+    """所有可用账号都已达并发上限。调用方应转成 HTTP 429。
+
+    与「没有可用账号」（RuntimeError）区分开：这里账号是健康的，只是此刻都在忙，
+    客户端稍后重试即可成功。
+    """
 
 
 class AccountService:
@@ -192,6 +197,9 @@ class AccountService:
             "team": "Team",
             "business": "Team",
             "enterprise": "Enterprise",
+            "k12": "K12",
+            "edu": "K12",
+            "education": "K12",
         }
         return aliases.get(compact) or aliases.get(key) or raw
 
@@ -936,19 +944,36 @@ class AccountService:
             if str((health_map.get(token) or {}).get("health_state") or "healthy") != "open"
         ]
 
-    @staticmethod
-    def _account_max_concurrency(health_state: str) -> int:
-        """单账号并发上限。image_account_concurrency=0 表示不限并发。
+    @classmethod
+    def _account_max_concurrency(cls, health_state: str, account_type: object = None) -> int:
+        """单账号并发上限：按账号套餐类型取值。
 
-        观察/半开态的账号仍固定为 1，用于试探性恢复，不受不限并发影响。
+        观察/半开态固定为 1，用于试探性恢复；其余按 image_plan_concurrency 中
+        该套餐的配置，未列出的套餐回退到 image_account_concurrency。
         """
         if health_state in {"probation", "half_open"}:
             return 1
-        configured = int(config.image_account_concurrency or 0)
-        return configured if configured > 0 else _UNLIMITED_CONCURRENCY
+        plan = cls._normalize_account_type(account_type)
+        if plan:
+            table = config.image_plan_concurrency
+            if plan in table:
+                return max(1, int(table[plan]))
+            # 容忍大小写/别名差异，避免配置里写 "pro" 而账号是 "Pro" 时静默回退
+            lowered = {str(key).lower(): value for key, value in table.items()}
+            if plan.lower() in lowered:
+                return max(1, int(lowered[plan.lower()]))
+        return max(1, int(config.image_account_concurrency or 1))
 
     def _remaining_quota_locked(self, token: str) -> int:
         return max(0, int((self._accounts.get(token) or {}).get("quota") or 0))
+
+    def _account_capacity_locked(self, token: str, health_state: str) -> int:
+        """该账号当前可再接收的并发数上限（并发上限与剩余次数取小）。"""
+        account = self._accounts.get(token) or {}
+        limit = self._account_max_concurrency(health_state, account.get("type"))
+        # quota 要等生成成功后才在 mark_image_result 里递减，因此在途数也必须
+        # 受剩余次数约束，否则会把账号的最后几次配额超额派发出去。
+        return min(limit, self._remaining_quota_locked(token))
 
     def _list_available_candidate_tokens(
             self,
@@ -967,11 +992,7 @@ class AccountService:
         result: list[str] = []
         for token in ready_tokens:
             state = str((health_map.get(token) or {}).get("health_state") or "healthy")
-            inflight = int(self._image_inflight.get(token, 0))
-            # quota 要等生成成功后才在 mark_image_result 里递减，因此在途数也必须
-            # 受剩余次数约束，否则不限并发时会把同一个账号的最后几次配额超额派发。
-            capacity = min(self._account_max_concurrency(state), self._remaining_quota_locked(token))
-            if inflight < capacity:
+            if int(self._image_inflight.get(token, 0)) < self._account_capacity_locked(token, state):
                 result.append(token)
         return result
 
@@ -1012,58 +1033,47 @@ class AccountService:
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
     ) -> str:
-        deadline: float | None = None
-        while True:
-            with self._image_slot_condition:
-                candidates = [
-                    str(item.get("access_token") or "")
-                    for item in self._accounts.values()
-                    if item.get("access_token")
-                ]
-                # 每轮一次批量查询，替代此前每账号 4 次 SQLite 连接
-                health_map = image_runtime_repository.get_health_many(candidates) if candidates else {}
-                ready = self._list_ready_candidate_tokens(
-                    excluded_tokens, plan_type, source_type, plan_types, health_map=health_map,
+        """取一个可用账号并占用其一个并发槽，不阻塞。
+
+        所有账号都已达各自套餐的并发上限时立刻抛 ImageQuotaBusyError（调用方转 429），
+        而不是排队等待——排队只会让客户端的等待时间不可预测。
+        """
+        with self._image_slot_condition:
+            candidates = [
+                str(item.get("access_token") or "")
+                for item in self._accounts.values()
+                if item.get("access_token")
+            ]
+            # 一次批量查询，替代此前每账号 4 次 SQLite 连接
+            health_map = image_runtime_repository.get_health_many(candidates) if candidates else {}
+            ready = self._list_ready_candidate_tokens(
+                excluded_tokens, plan_type, source_type, plan_types, health_map=health_map,
+            )
+            if not ready:
+                raise RuntimeError(
+                    f"no available {plan_type or source_type or ''} image quota".replace("  ", " ").strip()
+                    if plan_type or source_type else "no available image quota"
                 )
-                if not ready:
-                    raise RuntimeError(
-                        f"no available {plan_type or source_type or ''} image quota".replace("  ", " ").strip()
-                        if plan_type or source_type else "no available image quota"
-                    )
-                tokens = self._list_available_candidate_tokens(
-                    excluded_tokens, plan_type, source_type, plan_types,
-                    health_map=health_map, ready_tokens=ready,
+            tokens = self._list_available_candidate_tokens(
+                excluded_tokens, plan_type, source_type, plan_types,
+                health_map=health_map, ready_tokens=ready,
+            )
+            if not tokens:
+                busy = sum(int(self._image_inflight.get(token, 0)) for token in ready)
+                logger.warning({
+                    "event": "image_all_accounts_busy",
+                    "ready_accounts": len(ready),
+                    "inflight_total": busy,
+                    "plan_type": plan_type or "",
+                })
+                raise ImageQuotaBusyError(
+                    f"all {len(ready)} image accounts are at their concurrency limit "
+                    f"({busy} requests in flight); retry shortly"
                 )
-                if tokens:
-                    access_token = self._select_image_candidate(tokens, health_map=health_map)
-                    self._index += 1
-                    self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
-                    return access_token
-                # 所有账号都已达上限：仅在配置了有限并发时才可能发生。
-                # 等待有限时长，超时后放行到在途最少的账号，避免请求无限期堆在这里。
-                # 剩余次数已耗尽的账号绝不放行，否则会超发配额。
-                now = time.time()
-                if deadline is None:
-                    deadline = now + config.image_slot_wait_timeout_secs
-                if now >= deadline:
-                    spillable = [
-                        token for token in ready
-                        if int(self._image_inflight.get(token, 0)) < self._remaining_quota_locked(token)
-                    ]
-                    if not spillable:
-                        raise RuntimeError("no available image quota (all accounts exhausted)")
-                    access_token = min(
-                        spillable, key=lambda token: int(self._image_inflight.get(token, 0)),
-                    )
-                    self._index += 1
-                    self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
-                    logger.warning({
-                        "event": "image_slot_wait_timeout_overflow",
-                        "waited_secs": round(config.image_slot_wait_timeout_secs, 1),
-                        "inflight": int(self._image_inflight.get(access_token, 0)),
-                    })
-                    return access_token
-                self._image_slot_condition.wait(timeout=min(1.0, deadline - now))
+            access_token = self._select_image_candidate(tokens, health_map=health_map)
+            self._index += 1
+            self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
+            return access_token
 
     def release_image_slot(self, access_token: str) -> None:
         if not access_token:
@@ -1107,8 +1117,8 @@ class AccountService:
     def image_dynamic_capacity(self) -> int:
         """所有可用账号的容量之和，用作调度器的动态放行上限。
 
-        每个账号贡献 min(并发上限, 剩余生成次数)：健康/降级取 image_account_concurrency
-        （为 0 表示不限并发，此时只由剩余次数封顶），观察/半开取 1，熔断取 0。
+        每个账号贡献 min(该套餐的并发上限, 剩余生成次数)：并发上限取自
+        image_plan_concurrency，观察/半开取 1，熔断取 0。
         """
         with self._lock:
             accounts = [dict(item) for item in self._accounts.values()]
@@ -1125,7 +1135,7 @@ class AccountService:
             if state == "open":
                 continue
             quota = max(0, int(item.get("quota") or 0))
-            total += min(self._account_max_concurrency(state), quota)
+            total += min(self._account_max_concurrency(state, item.get("type")), quota)
         return total
 
     def get_available_access_token(

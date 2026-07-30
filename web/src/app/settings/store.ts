@@ -295,6 +295,7 @@ type SettingsStore = {
   setImageRetentionDays: (value: string) => void;
   setImagePollTimeoutSecs: (value: string) => void;
   setImageAccountConcurrency: (value: string) => void;
+  setImagePlanConcurrency: (plan: string, value: string) => void;
   setImageSettleEnabled: (value: boolean) => void;
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageRemoveConversationAfterResult: (value: boolean) => void;
@@ -532,6 +533,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageAccountConcurrency: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_account_concurrency: value } } : {});
+  },
+
+  setImagePlanConcurrency: (plan, value) => {
+    set((state) => state.config ? {
+      config: {
+        ...state.config,
+        image_plan_concurrency: { ...(state.config.image_plan_concurrency || {}), [plan]: value },
+      },
+    } : {});
   },
 
   setImageSettleEnabled: (value) => {

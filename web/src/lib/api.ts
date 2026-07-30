@@ -185,6 +185,7 @@ export type SettingsConfig = {
   image_retention_days?: number | string;
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;
+  image_plan_concurrency?: Record<string, number | string>;
   image_parallel_generation?: boolean;
   image_settle_enabled?: boolean;
   image_check_before_hit_enabled?: boolean;

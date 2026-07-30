@@ -15,6 +15,17 @@ import { testProxy, type ProxyTestResult } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
+// 键名须与后端 AccountService._normalize_account_type 的归一化输出一致
+const PLAN_CONCURRENCY_FIELDS = [
+  { key: "free", label: "Free", fallback: 1 },
+  { key: "Plus", label: "Plus", fallback: 2 },
+  { key: "Team", label: "Team", fallback: 2 },
+  { key: "K12", label: "K12", fallback: 2 },
+  { key: "Pro", label: "Pro", fallback: 5 },
+  { key: "ProLite", label: "Pro Lite", fallback: 2 },
+  { key: "Enterprise", label: "Enterprise", fallback: 5 },
+] as const;
+
 export function ConfigCard() {
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null);
@@ -25,7 +36,7 @@ export function ConfigCard() {
   const setRefreshAccountIntervalMinute = useSettingsStore((state) => state.setRefreshAccountIntervalMinute);
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
-  const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
+  const setImagePlanConcurrency = useSettingsStore((state) => state.setImagePlanConcurrency);
   const setImageSettleEnabled = useSettingsStore((state) => state.setImageSettleEnabled);
   const setImageRemoveConversationAfterResult = useSettingsStore((state) => state.setImageRemoveConversationAfterResult);
   const setImageRemoveConversationAlways = useSettingsStore((state) => state.setImageRemoveConversationAlways);
@@ -197,15 +208,25 @@ export function ConfigCard() {
             />
             <p className="text-xs text-stone-500">单位秒，等待上游图片结果的最长时间。</p>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm text-stone-700">单账号图片并发</label>
-            <Input
-              value={String(config?.image_account_concurrency || "")}
-              onChange={(event) => setImageAccountConcurrency(event.target.value)}
-              placeholder="1"
-              className="h-10 rounded-xl border-stone-200 bg-white"
-            />
-            <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
+          <div className="space-y-2 sm:col-span-2">
+            <label className="text-sm text-stone-700">单账号图片并发（按套餐）</label>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {PLAN_CONCURRENCY_FIELDS.map((plan) => (
+                <div key={plan.key} className="space-y-1">
+                  <span className="text-xs text-stone-500">{plan.label}</span>
+                  <Input
+                    value={String(config?.image_plan_concurrency?.[plan.key] ?? "")}
+                    onChange={(event) => setImagePlanConcurrency(plan.key, event.target.value)}
+                    placeholder={String(plan.fallback)}
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-stone-500">
+              每个账号按其套餐限制同时处理的图片请求数；账号被分配后直到该请求结算才释放。
+              所有账号都占满时新请求直接返回 429。
+            </p>
           </div>
           <div className="space-y-2">
             <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">

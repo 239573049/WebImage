@@ -12,7 +12,7 @@ from typing import Any, Iterable, Iterator
 
 import tiktoken
 
-from services.account_service import account_service
+from services.account_service import ImageQuotaBusyError, account_service
 from services.config import config
 from services.image_runtime_repository import account_health_key
 from services.image_storage_service import image_storage_service
@@ -1416,6 +1416,15 @@ def _generate_single_image(
                 source_type="codex" if codex_model else None,
                 plan_types=("plus", "team", "pro") if codex_model and not plan_type else None,
             )
+        except ImageQuotaBusyError as exc:
+            # 账号健康但全部在忙：返回 429 让客户端稍后重试，而不是 502
+            raise ImageGenerationError(
+                str(exc) or "all image accounts are busy",
+                status_code=429,
+                error_type="rate_limit_error",
+                code="rate_limit_exceeded",
+                account_email=account_email,
+            ) from exc
         except RuntimeError as exc:
             raise ImageGenerationError(str(exc) or "image generation failed", account_email=account_email) from exc
 

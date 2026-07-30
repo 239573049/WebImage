@@ -62,6 +62,18 @@ DEFAULT_CHAT_COMPLETION_CACHE = {
     "drop_assistant_history": False,
 }
 
+# 按套餐类型的单账号图片并发上限。键须与 AccountService._normalize_account_type
+# 的归一化输出一致（free / Plus / Pro / ProLite / Team / Enterprise）。
+DEFAULT_PLAN_CONCURRENCY = {
+    "free": 1,
+    "Plus": 2,
+    "Team": 2,
+    "K12": 2,
+    "Pro": 5,
+    "ProLite": 2,
+    "Enterprise": 5,
+}
+
 DEFAULT_PROXY_RUNTIME_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -501,22 +513,32 @@ class ConfigStore:
 
     @property
     def image_account_concurrency(self) -> int:
-        """单账号图片并发上限，0 表示不限（仅受账号剩余生成次数约束）。"""
+        """单账号图片并发的兜底值，用于套餐未在 image_plan_concurrency 中列出时。"""
         try:
-            return max(0, int(self.data.get("image_account_concurrency", 3)))
+            return max(1, int(self.data.get("image_account_concurrency", 1)))
         except (TypeError, ValueError):
-            return 3
+            return 1
 
     @property
-    def image_slot_wait_timeout_secs(self) -> float:
-        """账号槽位等待上限：超时后放行到在途最少的账号，避免请求无限期排队。
+    def image_plan_concurrency(self) -> dict[str, int]:
+        """按套餐类型的单账号并发上限。
 
-        仅在 image_account_concurrency > 0 且所有账号都已达上限时才会用到。
+        键为 _normalize_account_type 归一化后的套餐名，未列出的套餐回退到
+        image_account_concurrency。上游对不同档位的并发容忍度不同，
+        因此这里按档位而非全局设定。
         """
-        try:
-            return max(0.0, float(self.data.get("image_slot_wait_timeout_secs", 5.0)))
-        except (TypeError, ValueError):
-            return 5.0
+        merged = dict(DEFAULT_PLAN_CONCURRENCY)
+        raw = self.data.get("image_plan_concurrency")
+        if isinstance(raw, dict):
+            for plan, value in raw.items():
+                key = str(plan or "").strip()
+                if not key:
+                    continue
+                try:
+                    merged[key] = max(1, int(value))
+                except (TypeError, ValueError):
+                    continue
+        return merged
 
     @property
     def image_scheduler_max_workers(self) -> int:
@@ -693,7 +715,7 @@ class ConfigStore:
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
-        data["image_slot_wait_timeout_secs"] = self.image_slot_wait_timeout_secs
+        data["image_plan_concurrency"] = self.image_plan_concurrency
         data["image_scheduler_max_workers"] = self.image_scheduler_max_workers
         data["api_threadpool_tokens"] = self.api_threadpool_tokens
         data["image_account_validation_ttl_secs"] = self.image_account_validation_ttl_secs
