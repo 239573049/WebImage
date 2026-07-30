@@ -501,10 +501,22 @@ class ConfigStore:
 
     @property
     def image_account_concurrency(self) -> int:
+        """单账号图片并发上限，0 表示不限（仅受账号剩余生成次数约束）。"""
         try:
-            return max(1, int(self.data.get("image_account_concurrency", 3)))
+            return max(0, int(self.data.get("image_account_concurrency", 3)))
         except (TypeError, ValueError):
             return 3
+
+    @property
+    def image_slot_wait_timeout_secs(self) -> float:
+        """账号槽位等待上限：超时后放行到在途最少的账号，避免请求无限期排队。
+
+        仅在 image_account_concurrency > 0 且所有账号都已达上限时才会用到。
+        """
+        try:
+            return max(0.0, float(self.data.get("image_slot_wait_timeout_secs", 5.0)))
+        except (TypeError, ValueError):
+            return 5.0
 
     @property
     def image_scheduler_max_workers(self) -> int:
@@ -681,6 +693,7 @@ class ConfigStore:
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_slot_wait_timeout_secs"] = self.image_slot_wait_timeout_secs
         data["image_scheduler_max_workers"] = self.image_scheduler_max_workers
         data["api_threadpool_tokens"] = self.api_threadpool_tokens
         data["image_account_validation_ttl_secs"] = self.image_account_validation_ttl_secs

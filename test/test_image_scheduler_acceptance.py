@@ -12,13 +12,16 @@ from services.image_runtime_repository import ImageRuntimeRepository
 
 
 class _FakeHealthRepo:
-    """只提供 get_health 的假仓库，用于调度均衡测试。"""
+    """只提供健康查询的假仓库，用于调度均衡测试。"""
 
     def __init__(self, scores: dict[str, int]):
         self.scores = scores
 
     def get_health(self, access_token: str) -> dict[str, object]:
         return {"health_score": self.scores.get(access_token, 100), "health_state": "healthy"}
+
+    def get_health_many(self, access_tokens: list[str]) -> dict[str, dict[str, object]]:
+        return {token: self.get_health(token) for token in access_tokens}
 
 
 class SchedulerBalanceTests(unittest.TestCase):

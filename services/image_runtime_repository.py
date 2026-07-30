@@ -372,6 +372,57 @@ class ImageRuntimeRepository:
             "health_last_error": row["last_error"],
         }
 
+    def get_health_many(self, access_tokens: list[str]) -> dict[str, dict[str, object]]:
+        """批量读取健康态，单次连接完成，返回 {access_token: health}。
+
+        调度取号在持有账号全局锁时对每个账号读一次健康态；逐个调用 get_health()
+        会退化成 N 次 connect/close。这里合并为一次查询，缺失行按默认健康处理
+        （行的补写留给 record_health_result，读路径不写库）。
+        """
+        tokens = [token for token in access_tokens if token]
+        if not tokens:
+            return {}
+        keys = {account_health_key(token): token for token in tokens}
+        now = time.time()
+        result: dict[str, dict[str, object]] = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM image_account_health WHERE account_key IN "
+                f"({','.join('?' for _ in keys)})",
+                list(keys),
+            ).fetchall()
+            expired: list[str] = []
+            for row in rows:
+                key = str(row["account_key"])
+                token = keys.get(key)
+                if token is None:
+                    continue
+                state = str(row["state"])
+                cooldown = float(row["cooldown_until"]) if row["cooldown_until"] is not None else None
+                # 冷却到期即视为半开，与 get_health 行为一致
+                if state == "open" and cooldown is not None and cooldown <= now:
+                    state = "half_open"
+                    expired.append(key)
+                result[token] = {
+                    "health_score": int(row["score"]),
+                    "health_state": state,
+                    "health_success_rate": round(float(row["success_ewma"]), 4),
+                    "health_latency_ms": round(float(row["latency_ewma_ms"]), 1),
+                    "health_consecutive_failures": int(row["consecutive_failures"]),
+                    "health_cooldown_until": cooldown,
+                    "image_assigned": int(row["assigned"]),
+                    "health_last_error": row["last_error"],
+                }
+            if expired:
+                conn.execute(
+                    "UPDATE image_account_health SET state='half_open', updated_ts=? "
+                    f"WHERE account_key IN ({','.join('?' for _ in expired)})",
+                    [now, *expired],
+                )
+        for token in tokens:
+            result.setdefault(token, dict(DEFAULT_HEALTH))
+        return result
+
     def record_assignment(self, access_token: str) -> dict[str, object]:
         self.get_health(access_token)
         key = account_health_key(access_token)
