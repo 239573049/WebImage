@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   ArrowLeft,
   Copy,
@@ -38,7 +38,19 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "account-json" | "oauth";
+import {
+  describeSub2ApiSkips,
+  getAccountJsonAccounts,
+  getCodexAuthAccount,
+  getSessionAccessToken,
+  mergeSub2ApiResults,
+  parseSub2ApiExport,
+  parseSub2ApiText,
+  splitTokens,
+  type Sub2ApiParseResult,
+} from "./account-import-parsers";
+
+type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "account-json" | "sub2api-json" | "oauth";
 
 type AccountImportDialogProps = {
   disabled?: boolean;
@@ -50,135 +62,11 @@ type PendingAccountJsonImport = {
   accounts: AccountImportPayload[];
   parsedAccountCount: number;
   errorCount: number;
+  skippedPlatformCount?: number;
+  successText?: string;
 };
 
 const sessionUrl = "https://chatgpt.com/api/auth/session";
-
-function splitTokens(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function getSessionAccessToken(value: unknown) {
-  const token = (value as { accessToken?: unknown })?.accessToken;
-  return typeof token === "string" ? token.trim() : "";
-}
-
-function getAccountJsonAccount(value: unknown): AccountImportPayload | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = value as Record<string, unknown>;
-  const credentials =
-    raw.credentials && typeof raw.credentials === "object" && !Array.isArray(raw.credentials)
-      ? (raw.credentials as Record<string, unknown>)
-      : null;
-  const tokenValue = raw.access_token ?? raw.accessToken ?? credentials?.access_token ?? credentials?.accessToken;
-  const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
-  if (!token) {
-    return null;
-  }
-
-  if (credentials) {
-    const extra =
-      raw.extra && typeof raw.extra === "object" && !Array.isArray(raw.extra)
-        ? (raw.extra as Record<string, unknown>)
-        : {};
-    const payload: AccountImportPayload = {
-      ...credentials,
-      access_token: token,
-      export_type: "codex",
-      source_type: "codex",
-    };
-    delete payload.accessToken;
-
-    if (!payload.email && typeof extra.email === "string") {
-      payload.email = extra.email;
-    }
-    if (!payload.last_refresh && typeof extra.last_refresh === "string") {
-      payload.last_refresh = extra.last_refresh;
-    }
-    if (typeof raw.name === "string" && raw.name.trim()) {
-      payload.name = raw.name;
-    }
-    if (typeof raw.platform === "string" && raw.platform.trim()) {
-      payload.sub2api_platform = raw.platform;
-    }
-    if (typeof raw.type === "string" && raw.type.trim()) {
-      payload.sub2api_auth_type = raw.type;
-    }
-    if (typeof raw.concurrency === "number") {
-      payload.concurrency = raw.concurrency;
-    }
-    if (typeof raw.priority === "number") {
-      payload.priority = raw.priority;
-    }
-    return payload;
-  }
-
-  const payload: AccountImportPayload = {
-    ...raw,
-    access_token: token,
-    source_type: "codex",
-  };
-  delete payload.accessToken;
-  if (payload.type === "codex") {
-    payload.export_type = "codex";
-    delete payload.type;
-  }
-  return payload;
-}
-
-function getAccountJsonAccounts(value: unknown): AccountImportPayload[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => getAccountJsonAccount(item))
-      .filter((item): item is AccountImportPayload => Boolean(item));
-  }
-
-  const singleAccount = getAccountJsonAccount(value);
-  if (singleAccount) {
-    return [singleAccount];
-  }
-
-  if (value && typeof value === "object") {
-    const raw = value as Record<string, unknown>;
-    const nested = raw.accounts ?? raw.items;
-    if (Array.isArray(nested)) {
-      return nested
-        .map((item) => getAccountJsonAccount(item))
-        .filter((item): item is AccountImportPayload => Boolean(item));
-    }
-  }
-
-  return [];
-}
-
-function getCodexAuthAccount(value: unknown): AccountImportPayload | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = value as Record<string, unknown>;
-  const tokenValue = raw.access_token ?? raw.accessToken;
-  const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
-  if (!token) {
-    return null;
-  }
-
-  const payload: AccountImportPayload = {
-    ...raw,
-    access_token: token,
-    export_type: "codex",
-    source_type: "codex",
-  };
-  delete payload.accessToken;
-  if (payload.type === "codex") {
-    delete payload.type;
-  }
-  return payload;
-}
 
 function readFileAsText(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -188,6 +76,26 @@ function readFileAsText(file: File) {
     reader.readAsText(file);
   });
 }
+
+const METHOD_TITLES: Record<ImportMethod, string> = {
+  menu: "导入账户",
+  token: "导入 Access Token",
+  session: "导入 Session JSON",
+  "codex-auth": "导入 Codex 认证 JSON",
+  "account-json": "导入账号 JSON",
+  "sub2api-json": "导入 Sub2API 导出 JSON",
+  oauth: "OAuth 登录已有账号",
+};
+
+const METHOD_DESCRIPTIONS: Record<ImportMethod, string> = {
+  menu: "选择一种导入方式。导入成功后会自动拉取邮箱、类型和额度。",
+  token: "支持手动粘贴或从 TXT 文件导入，一行一个 Token。",
+  session: "粘贴完整 Session JSON，系统会自动提取 accessToken。",
+  "codex-auth": "粘贴 Codex 认证 JSON，系统会按 codex 来源导入。",
+  "account-json": "支持读取本项目、CPA 或 Sub2API 导出的账号 JSON，并在提交前做数量确认。",
+  "sub2api-json": "粘贴或选择 Sub2API 导出的账号 JSON，系统会展开 accounts[].credentials 并在提交前做数量确认。",
+  oauth: "用浏览器跑一遍 OpenAI 标准 OAuth，拿回 refresh_token 后系统会自动续期。",
+};
 
 function MethodCard({
   title,
@@ -228,6 +136,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   const [tokenInput, setTokenInput] = useState("");
   const [sessionInput, setSessionInput] = useState("");
   const [codexAuthInput, setCodexAuthInput] = useState("");
+  const [sub2apiJsonInput, setSub2apiJsonInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingAccountJsonImport, setPendingAccountJsonImport] = useState<PendingAccountJsonImport | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -238,12 +147,16 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
 
   const txtInputRef = useRef<HTMLInputElement | null>(null);
   const accountJsonInputRef = useRef<HTMLInputElement | null>(null);
+  const sub2apiJsonInputRef = useRef<HTMLInputElement | null>(null);
+
+  const sub2apiTextPreview = useMemo(() => parseSub2ApiText(sub2apiJsonInput), [sub2apiJsonInput]);
 
   const resetState = () => {
     setMethod("menu");
     setTokenInput("");
     setSessionInput("");
     setCodexAuthInput("");
+    setSub2apiJsonInput("");
     setPendingAccountJsonImport(null);
     setConfirmOpen(false);
     setOauthEmailHint("");
@@ -480,6 +393,75 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       setConfirmOpen(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "读取账号 JSON 文件失败";
+      toast.error(message);
+    }
+  };
+
+  const stageSub2ApiImport = (result: Sub2ApiParseResult, fileErrorCount: number) => {
+    if (result.accounts.length === 0) {
+      const skips = describeSub2ApiSkips(result);
+      toast.error(skips ? `没有读取到可导入的 OpenAI 账号（${skips}）` : "没有从 Sub2API JSON 中读取到可用 access_token");
+      return;
+    }
+
+    setPendingAccountJsonImport({
+      tokens: result.accounts.map((item) => item.access_token),
+      accounts: result.accounts,
+      parsedAccountCount: result.accounts.length,
+      errorCount: fileErrorCount + result.skippedNoToken,
+      skippedPlatformCount: result.skippedPlatform,
+      successText: "Sub2API JSON 导入完成",
+    });
+    setConfirmOpen(true);
+  };
+
+  const handleParseSub2ApiText = () => {
+    if (!sub2apiJsonInput.trim()) {
+      toast.error("请先粘贴 Sub2API 导出的 JSON");
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(sub2apiJsonInput) as unknown;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Sub2API JSON 解析失败";
+      toast.error(`JSON 格式有误：${message}`);
+      return;
+    }
+
+    stageSub2ApiImport(parseSub2ApiExport(parsed), 0);
+  };
+
+  const handleSub2ApiFilesSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+
+    if (files.length === 0) {
+      return;
+    }
+
+    try {
+      const results = await Promise.all(
+        files.map(async (file) => {
+          const raw = await readFileAsText(file);
+          try {
+            return parseSub2ApiExport(JSON.parse(raw) as unknown);
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const parsedResults = results.filter((item): item is Sub2ApiParseResult => item !== null);
+      const unreadableFiles = results.length - parsedResults.length;
+      if (unreadableFiles > 0) {
+        toast.error(`有 ${unreadableFiles} 个文件不是合法 JSON，已忽略`);
+      }
+
+      stageSub2ApiImport(mergeSub2ApiResults(parsedResults), unreadableFiles);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "读取 Sub2API JSON 文件失败";
       toast.error(message);
     }
   };
@@ -729,6 +711,71 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       );
     }
 
+    if (method === "sub2api-json") {
+      const previewSkips = describeSub2ApiSkips(sub2apiTextPreview);
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setMethod("menu")}
+              className="inline-flex items-center gap-1 text-sm text-stone-500 transition hover:text-stone-800"
+            >
+              <ArrowLeft className="size-4" />
+              返回导入方式
+            </button>
+            {sub2apiJsonInput.trim() ? (
+              <span className="text-xs text-stone-400">
+                当前识别 {sub2apiTextPreview.accounts.length} 个 OpenAI 账号
+              </span>
+            ) : null}
+          </div>
+          <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+            粘贴 Sub2API 后台导出的账号 JSON（形如 <code className="rounded bg-stone-200 px-1">{"{ \"accounts\": [...], \"proxies\": [] }"}</code>），
+            系统会读取每个账号的 <code className="rounded bg-stone-200 px-1">credentials</code>，保留 refresh_token、id_token 与套餐信息，
+            并自动跳过非 OpenAI 平台的账号。
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-stone-700">Sub2API 导出 JSON</label>
+            <Textarea
+              placeholder={'粘贴完整导出内容，例如 {"accounts": [{"platform": "openai", "credentials": {...}}]}'}
+              value={sub2apiJsonInput}
+              onChange={(event) => setSub2apiJsonInput(event.target.value)}
+              className="min-h-56 resize-none rounded-xl border-stone-200 font-mono text-xs"
+            />
+            {previewSkips ? <div className="text-xs text-amber-600">{previewSkips}</div> : null}
+          </div>
+          <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-stone-800">从导出文件导入</div>
+                <div className="text-sm leading-6 text-stone-500">支持一次选择多个 Sub2API 导出的 `.json` 文件。</div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl border-stone-200 bg-white"
+                onClick={() => sub2apiJsonInputRef.current?.click()}
+                disabled={isSubmitting}
+              >
+                <Files className="size-4" />
+                选择 JSON
+              </Button>
+            </div>
+          </div>
+          <input
+            ref={sub2apiJsonInputRef}
+            type="file"
+            accept=".json,application/json"
+            multiple
+            className="hidden"
+            onChange={(event) => void handleSub2ApiFilesSelected(event)}
+          />
+        </div>
+      );
+    }
+
     if (method === "codex-auth") {
       return (
         <div className="space-y-4">
@@ -786,6 +833,12 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
           onClick={() => setMethod("account-json")}
         />
         <MethodCard
+          title="导入 Sub2API 导出 JSON"
+          description="粘贴或选择 Sub2API 后台导出的账号 JSON，自动读取 credentials 并跳过非 OpenAI 账号。"
+          icon={ServerCog}
+          onClick={() => setMethod("sub2api-json")}
+        />
+        <MethodCard
           title="从远程 CPA 服务器导入"
           description="前往设置页面配置远程 CPA 服务器后再执行导入。"
           icon={Files}
@@ -824,32 +877,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
         </Button>
         <DialogContent showCloseButton={false} className="rounded-2xl p-6">
           <DialogHeader className="gap-2">
-            <DialogTitle>
-              {method === "menu"
-                ? "导入账户"
-                : method === "token"
-                  ? "导入 Access Token"
-                  : method === "session"
-                    ? "导入 Session JSON"
-                    : method === "codex-auth"
-                      ? "导入 Codex 认证 JSON"
-                    : method === "oauth"
-                      ? "OAuth 登录已有账号"
-                      : "导入账号 JSON"}
-            </DialogTitle>
-            <DialogDescription className="text-sm leading-6">
-              {method === "menu"
-                ? "选择一种导入方式。导入成功后会自动拉取邮箱、类型和额度。"
-                : method === "token"
-                  ? "支持手动粘贴或从 TXT 文件导入，一行一个 Token。"
-                  : method === "session"
-                    ? "粘贴完整 Session JSON，系统会自动提取 accessToken。"
-                    : method === "codex-auth"
-                      ? "粘贴 Codex 认证 JSON，系统会按 codex 来源导入。"
-                    : method === "oauth"
-                      ? "用浏览器跑一遍 OpenAI 标准 OAuth，拿回 refresh_token 后系统会自动续期。"
-                      : "支持读取本项目、CPA 或 Sub2API 导出的账号 JSON，并在提交前做数量确认。"}
-            </DialogDescription>
+            <DialogTitle>{METHOD_TITLES[method]}</DialogTitle>
+            <DialogDescription className="text-sm leading-6">{METHOD_DESCRIPTIONS[method]}</DialogDescription>
           </DialogHeader>
 
           {renderMethodBody()}
@@ -906,6 +935,16 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
                 完成导入
               </Button>
             ) : null}
+            {method === "sub2api-json" ? (
+              <Button
+                className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
+                onClick={() => handleParseSub2ApiText()}
+                disabled={footerDisabled || !sub2apiJsonInput.trim()}
+              >
+                {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                解析并确认
+              </Button>
+            ) : null}
             {method === "account-json" ? (
               <Button
                 className={cn(
@@ -931,8 +970,11 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
                 ? `确认识别到 ${pendingAccountJsonImport.parsedAccountCount} 个 Token，是否确认导入？`
                 : "尚未读取到可导入的 Token。"}
               {pendingAccountJsonImport?.errorCount
-                ? `，另有 ${pendingAccountJsonImport.errorCount} 个文件未提取成功。`
+                ? `，另有 ${pendingAccountJsonImport.errorCount} 个未提取成功。`
                 : "。"}
+              {pendingAccountJsonImport?.skippedPlatformCount
+                ? `已跳过 ${pendingAccountJsonImport.skippedPlatformCount} 个非 OpenAI 平台账号。`
+                : ""}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="pt-2">
@@ -949,7 +991,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
               onClick={() =>
                 void submitTokens(
                   pendingAccountJsonImport?.tokens ?? [],
-                  "账号 JSON 导入完成",
+                  pendingAccountJsonImport?.successText ?? "账号 JSON 导入完成",
                   pendingAccountJsonImport?.accounts ?? [],
                 )
               }
