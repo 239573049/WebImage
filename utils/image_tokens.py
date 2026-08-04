@@ -287,6 +287,11 @@ def count_image_output_items_tokens(
     return total
 
 
+def compensate_image_generation_output_tokens(output_tokens: int) -> int:
+    output_tokens = max(0, int(output_tokens or 0))
+    return output_tokens + 350 if output_tokens < 900 else output_tokens
+
+
 def token_usage(
     input_text_tokens: int = 0,
     input_image_tokens: int = 0,

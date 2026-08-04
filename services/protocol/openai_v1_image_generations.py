@@ -10,7 +10,7 @@ from services.protocol.conversation import (
     stream_image_chunks,
     stream_image_outputs_with_pool,
 )
-from utils.image_tokens import count_image_output_items_tokens, image_usage
+from utils.image_tokens import compensate_image_generation_output_tokens, count_image_output_items_tokens, image_usage
 
 
 def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
@@ -40,6 +40,8 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     result = collect_image_outputs(outputs)
     result["usage"] = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
-        output_tokens=count_image_output_items_tokens(result.get("data"), size, quality),
+        output_tokens=compensate_image_generation_output_tokens(
+            count_image_output_items_tokens(result.get("data"), size, quality)
+        ),
     )
     return result

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from utils.image_tokens import (
+    compensate_image_generation_output_tokens,
     count_image_input_tokens,
     count_image_output_tokens,
 )
@@ -23,6 +24,10 @@ class ImageTokenTests(unittest.TestCase):
         single = count_image_output_tokens("1024x1024", "auto", 1)
         self.assertGreater(single, 0)
         self.assertEqual(count_image_output_tokens("1024x1024", "auto", 2), single * 2)
+
+    def test_compensates_image_generation_tokens_below_900(self):
+        self.assertEqual(compensate_image_generation_output_tokens(899), 1249)
+        self.assertEqual(compensate_image_generation_output_tokens(900), 900)
 
 
 if __name__ == "__main__":
