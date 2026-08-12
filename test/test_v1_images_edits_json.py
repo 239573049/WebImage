@@ -36,6 +36,28 @@ class ImageEditsJsonApiTests(unittest.TestCase):
         app.include_router(ai_module.create_router())
         self.client = TestClient(app)
 
+    def test_generation_with_json_images_uses_edit_handler(self):
+        response = self.client.post(
+            "/v1/images/generations",
+            headers=AUTH_HEADERS,
+            json={
+                "model": "gpt-image-2",
+                "prompt": "将三张图片合成一张",
+                "n": 1,
+                "size": "1024x1024",
+                "response_format": "b64_json",
+                "image": [PNG_DATA_URL, JPEG_DATA_URL, PNG_DATA_URL],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0]["images"], [
+            (b"fake-png", "image_1.png", "image/png"),
+            (b"fake-jpeg", "image_2.jpg", "image/jpeg"),
+            (b"fake-png", "image_3.png", "image/png"),
+        ])
+
     def test_json_model_omitted_uses_existing_default_logic(self):
         response = self.client.post("/v1/images/edits", headers=AUTH_HEADERS, json={"prompt": "未传 model", "image": PNG_DATA_URL})
         self.assertEqual(response.status_code, 200, response.text)

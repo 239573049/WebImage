@@ -21,17 +21,6 @@ from services.protocol import (
 )
 
 
-class ImageGenerationRequest(BaseModel):
-    prompt: str = Field(..., min_length=1)
-    model: str = "gpt-image-2"
-    n: int = Field(default=1, ge=1, le=4)
-    size: str | None = None
-    quality: str = "auto"
-    response_format: str = "b64_json"
-    history_disabled: bool = True
-    stream: bool | None = None
-
-
 class ChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
     model: str | None = None
@@ -90,15 +79,26 @@ def create_router() -> APIRouter:
 
     @router.post("/v1/images/generations")
     async def generate_images(
-            body: ImageGenerationRequest,
             request: Request,
             authorization: str | None = Header(default=None),
     ):
         identity = require_identity(authorization)
-        payload = body.model_dump(mode="python")
+        payload, image_sources, _ = await parse_image_edit_request(request)
+        prompt = str(payload["prompt"])
+        model = str(payload["model"])
+        has_images = bool(image_sources)
+        call = LoggedCall(
+            identity,
+            "/v1/images/generations",
+            model,
+            "图生图" if has_images else "文生图",
+            request_text=prompt,
+        )
+        await filter_or_log(call, prompt)
         payload["base_url"] = resolve_image_base_url(request)
-        call = LoggedCall(identity, "/v1/images/generations", body.model, "文生图", request_text=body.prompt)
-        await filter_or_log(call, body.prompt)
+        if has_images:
+            payload["images"] = await read_image_sources(image_sources)
+            return await call.run(openai_v1_image_edit.handle, payload)
         return await call.run(openai_v1_image_generations.handle, payload)
 
     @router.post("/v1/images/edits")
