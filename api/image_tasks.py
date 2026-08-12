@@ -11,14 +11,6 @@ from services.image_task_service import image_task_service
 from services.log_service import LoggedCall
 
 
-class ImageGenerationTaskRequest(BaseModel):
-    client_task_id: str = Field(..., min_length=1)
-    prompt: str = Field(..., min_length=1)
-    model: str = "gpt-image-2"
-    size: str | None = None
-    quality: str = "auto"
-
-
 class ResumePollRequest(BaseModel):
     extra_timeout_secs: float = Field(default=30.0, ge=5.0, le=120.0)
 
@@ -48,21 +40,48 @@ def create_router() -> APIRouter:
 
     @router.post("/api/image-tasks/generations")
     async def create_generation_task(
-        body: ImageGenerationTaskRequest,
         request: Request,
         authorization: str | None = Header(default=None),
     ):
         identity = require_identity(authorization)
-        await filter_or_log(LoggedCall(identity, "/api/image-tasks/generations", body.model, "文生图任务", request_text=body.prompt), body.prompt)
+        payload, image_sources, _ = await parse_image_edit_request(request)
+        client_task_id = str(payload.get("client_task_id") or "").strip()
+        if not client_task_id:
+            raise HTTPException(status_code=400, detail={"error": "client_task_id is required"})
+        prompt = str(payload["prompt"])
+        model = str(payload["model"])
+        size = payload["size"]
+        quality = str(payload["quality"])
+        has_images = bool(image_sources)
+        call = LoggedCall(
+            identity,
+            "/api/image-tasks/generations",
+            model,
+            "图生图任务" if has_images else "文生图任务",
+            request_text=prompt,
+        )
+        await filter_or_log(call, prompt)
         try:
+            if has_images:
+                return await run_in_threadpool(
+                    image_task_service.submit_edit,
+                    identity,
+                    client_task_id=client_task_id,
+                    prompt=prompt,
+                    model=model,
+                    size=size,
+                    quality=quality,
+                    base_url=resolve_image_base_url(request),
+                    images=await read_image_sources(image_sources),
+                )
             return await run_in_threadpool(
                 image_task_service.submit_generation,
                 identity,
-                client_task_id=body.client_task_id,
-                prompt=body.prompt,
-                model=body.model,
-                size=body.size,
-                quality=body.quality,
+                client_task_id=client_task_id,
+                prompt=prompt,
+                model=model,
+                size=size,
+                quality=quality,
                 base_url=resolve_image_base_url(request),
             )
         except ValueError as exc:

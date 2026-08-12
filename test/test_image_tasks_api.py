@@ -82,6 +82,26 @@ class ImageTasksApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(len(self.fake_service.generation_calls), 1)
 
+    def test_create_generation_task_with_image_uses_edit_handler(self):
+        response = self.client.post(
+            "/api/image-tasks/generations",
+            headers=AUTH_HEADERS,
+            json={
+                "client_task_id": "task-image-1",
+                "prompt": "edit cat",
+                "model": "gpt-image-2",
+                "image": [DATA_IMAGE_URL],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["mode"], "edit")
+        self.assertEqual(self.fake_service.generation_calls, [])
+        self.assertEqual(len(self.fake_service.edit_calls), 1)
+        kwargs = self.fake_service.edit_calls[0][1]
+        self.assertEqual(kwargs["client_task_id"], "task-image-1")
+        self.assertEqual(kwargs["images"], [(PNG_BYTES, "image_url.png", "image/png")])
+
     def test_create_edit_task_accepts_multiple_images(self):
         """测试图片编辑任务接口支持多个上传图片。"""
         response = self.client.post(
