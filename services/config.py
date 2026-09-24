@@ -108,6 +108,14 @@ DEFAULT_THIRD_PARTY_APPS = {
     },
 }
 
+# 内置 Web 生图模型（官网画图链路）。新增型号时同步更新 utils.helper.DEFAULT_WEB_IMAGE_MODELS。
+DEFAULT_IMAGE_MODELS = [
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
+    "gpt-image-2",
+]
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
+
 
 def _normalize_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
@@ -128,6 +136,32 @@ def _normalize_positive_int(value: object, default: int, minimum: int = 0) -> in
     except (OverflowError, TypeError, ValueError):
         normalized = default
     return max(minimum, normalized)
+
+
+def _model_entries(value: object) -> list[object]:
+    if isinstance(value, str):
+        return value.replace(",", "\n").splitlines()
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return []
+
+
+def _normalize_image_model_list(value: object) -> list[str]:
+    normalized: list[str] = []
+    for item in _model_entries(value):
+        model = str(item or "").strip().lower()
+        if model and model not in normalized:
+            normalized.append(model)
+    return normalized
+
+
+def _normalize_custom_image_models(value: object) -> list[str]:
+    builtin = set(DEFAULT_IMAGE_MODELS)
+    return [model for model in _normalize_image_model_list(value) if model not in builtin]
+
+
+def _image_models_with_defaults(custom_models: object) -> list[str]:
+    return list(DEFAULT_IMAGE_MODELS) + _normalize_custom_image_models(custom_models)
 
 
 def _normalize_backup_include(value: object) -> dict[str, bool]:
@@ -570,6 +604,22 @@ class ConfigStore:
             return 600.0
 
     @property
+    def custom_image_models(self) -> list[str]:
+        """用户额外补充的 Web 生图模型（不含内置型号）。"""
+        return _normalize_custom_image_models(self.data.get("custom_image_models"))
+
+    @property
+    def image_models(self) -> list[str]:
+        """可用的 Web 生图模型：内置型号 + 自定义型号。"""
+        return _image_models_with_defaults(self.data.get("custom_image_models"))
+
+    @property
+    def default_image_model(self) -> str:
+        """请求未指定 model 时使用的生图模型，失效时回退内置默认值。"""
+        model = str(self.data.get("default_image_model") or DEFAULT_IMAGE_MODEL).strip().lower()
+        return model if model in self.image_models else DEFAULT_IMAGE_MODEL
+
+    @property
     def image_parallel_generation(self) -> bool:
         value = self.data.get("image_parallel_generation", True)
         if isinstance(value, str):
@@ -715,6 +765,9 @@ class ConfigStore:
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["custom_image_models"] = self.custom_image_models
+        data["image_models"] = self.image_models
+        data["default_image_model"] = self.default_image_model
         data["image_plan_concurrency"] = self.image_plan_concurrency
         data["image_scheduler_max_workers"] = self.image_scheduler_max_workers
         data["api_threadpool_tokens"] = self.api_threadpool_tokens
@@ -763,8 +816,16 @@ class ConfigStore:
         return _normalize_third_party_apps_settings(self.data.get("third_party_apps"))
 
     def update(self, data: dict[str, object]) -> dict[str, object]:
+        incoming = dict(data or {})
         next_data = dict(self.data)
-        next_data.update(dict(data or {}))
+        next_data.update(incoming)
+        if "custom_image_models" in next_data:
+            next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("custom_image_models"))
+        default_image_model = str(next_data.get("default_image_model") or DEFAULT_IMAGE_MODEL).strip().lower()
+        available_image_models = _image_models_with_defaults(next_data.get("custom_image_models"))
+        next_data["default_image_model"] = (
+            default_image_model if default_image_model in available_image_models else DEFAULT_IMAGE_MODEL
+        )
         if "backup" in next_data:
             next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
         if "image_storage" in next_data:

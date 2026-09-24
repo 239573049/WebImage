@@ -81,6 +81,8 @@ type AccountListResponse = {
 type ModelListResponse = {
   object: string;
   data: Model[];
+  /** 后端配置的默认生图模型。 */
+  default_image_model?: string;
 };
 
 type AccountMutationResponse = {
@@ -186,6 +188,12 @@ export type SettingsConfig = {
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;
   image_plan_concurrency?: Record<string, number | string>;
+  /** 用户额外补充的 Web 生图模型（不含内置型号）。 */
+  custom_image_models?: string[];
+  /** 只读：内置型号 + 自定义型号，由后端返回。 */
+  image_models?: string[];
+  /** 请求未指定 model 时使用的生图模型。 */
+  default_image_model?: string;
   image_parallel_generation?: boolean;
   image_settle_enabled?: boolean;
   image_check_before_hit_enabled?: boolean;

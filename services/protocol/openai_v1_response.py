@@ -6,6 +6,7 @@ from typing import Any, Iterable, Iterator
 
 from fastapi import HTTPException
 
+from services.config import config
 from services.protocol.chat_completion_cache import cache_key, chat_completion_cache, normalize_text_messages
 from services.protocol.conversation import (
     ConversationRequest,
@@ -426,7 +427,7 @@ def response_events(body: dict[str, Any]) -> Iterator[dict[str, Any]]:
     prompt = extract_response_prompt(body.get("input"))
     if not prompt:
         raise HTTPException(status_code=400, detail={"error": "input text is required"})
-    model = str(body.get("model") or "gpt-image-2").strip() or "gpt-image-2"
+    model = str(body.get("model") or config.default_image_model).strip() or config.default_image_model
     image_info = extract_response_image(body.get("input"))
     if image_info:
         image_data, mime_type = image_info

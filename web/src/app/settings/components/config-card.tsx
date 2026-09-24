@@ -51,6 +51,8 @@ export function ConfigCard() {
   const setGlobalSystemPrompt = useSettingsStore((state) => state.setGlobalSystemPrompt);
   const setDefaultUpstreamModelName = useSettingsStore((state) => state.setDefaultUpstreamModelName);
   const setDefaultThinkingEffort = useSettingsStore((state) => state.setDefaultThinkingEffort);
+  const setCustomImageModelsText = useSettingsStore((state) => state.setCustomImageModelsText);
+  const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
   const setSensitiveWordsText = useSettingsStore((state) => state.setSensitiveWordsText);
   const setAIReviewField = useSettingsStore((state) => state.setAIReviewField);
   const setImageStorageField = useSettingsStore((state) => state.setImageStorageField);
@@ -187,6 +189,37 @@ export function ConfigCard() {
               </SelectContent>
             </Select>
             <p className="text-xs text-stone-500">模型名称以 -standard、-extended 或 -max 结尾时，模型后缀优先。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">默认生图模型</label>
+            <Select
+              value={String(config?.default_image_model || "")}
+              onValueChange={setDefaultImageModel}
+            >
+              <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                <SelectValue placeholder="gpt-image-2" />
+              </SelectTrigger>
+              <SelectContent>
+                {(config?.image_models || []).map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-stone-500">请求未指定 model 时使用的生图模型。</p>
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm text-stone-700">自定义生图模型</label>
+            <Textarea
+              value={(config?.custom_image_models || []).join("\n")}
+              onChange={(event) => setCustomImageModelsText(event.target.value)}
+              placeholder="一行一个上游模型名，例如 gpt-image-2.5-sunburst"
+              className="min-h-24 rounded-xl border-stone-200 bg-white font-mono text-xs shadow-none"
+            />
+            <p className="text-xs text-stone-500">
+              在官网画图链路可用的上游模型基础上补充型号，模型名会原样透传给上游；内置型号无需重复填写。
+            </p>
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">图片自动清理</label>

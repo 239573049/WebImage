@@ -152,7 +152,7 @@ class ImageTaskService:
                 float(config.image_poll_timeout_secs),
                 identity,
                 str(task.get("mode") or "generate"),
-                _clean(task.get("model"), "gpt-image-2"),
+                _clean(task.get("model"), config.default_image_model),
             )
 
     def submit_generation(
@@ -268,7 +268,7 @@ class ImageTaskService:
                 "owner_id": owner,
                 "status": TASK_STATUS_QUEUED,
                 "mode": mode,
-                "model": _clean(payload.get("model"), "gpt-image-2"),
+                "model": _clean(payload.get("model"), config.default_image_model),
                 "size": _clean(payload.get("size")),
                 "quality": _clean(payload.get("quality"), "auto"),
                 "created_at": now,
@@ -356,7 +356,7 @@ class ImageTaskService:
             if key in self._submitted:
                 return
             self._submitted.add(key)
-        model = _clean(payload.get("model"), "gpt-image-2")
+        model = _clean(payload.get("model"), config.default_image_model)
 
         def runner() -> None:
             with self._lock:
@@ -625,7 +625,7 @@ class ImageTaskService:
                 "owner_id": owner,
                 "status": status,
                 "mode": "edit" if item.get("mode") == "edit" else "generate",
-                "model": _clean(item.get("model"), "gpt-image-2"),
+                "model": _clean(item.get("model"), config.default_image_model),
                 "size": _clean(item.get("size")),
                 "quality": _clean(item.get("quality"), "auto"),
                 "created_at": _clean(item.get("created_at"), _now_iso()),
@@ -722,7 +722,7 @@ class ImageTaskService:
             if not conversation_id:
                 raise ValueError("task has no conversation_id")
             mode = task.get("mode", "generate")
-            model = task.get("model", "gpt-image-2")
+            model = task.get("model", config.default_image_model)
             # 将任务状态重置为 running
             self._update_task(key, status=TASK_STATUS_RUNNING, error="")
 

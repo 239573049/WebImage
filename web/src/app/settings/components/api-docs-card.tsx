@@ -125,7 +125,7 @@ const docs: ApiDoc[] = [
     input: [
       ["image", "file | file[] | URL", "参考图，支持 multipart 上传，也支持 JSON 图片链接。"],
       ["prompt", "string", "编辑提示词。"],
-      ["model", "string", "可选，默认 gpt-image-2。"],
+      ["model", "string", "可选，默认取设置中的默认生图模型（内置 gpt-image-2）。"],
       ["n", "number", "可选，生成数量，当前限制 1-4。"],
       ["size", "string", "可选，图片尺寸。"],
       ["quality", "string", "可选，默认 auto。"],

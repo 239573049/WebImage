@@ -311,6 +311,8 @@ type SettingsStore = {
   setGlobalSystemPrompt: (value: string) => void;
   setDefaultUpstreamModelName: (value: string) => void;
   setDefaultThinkingEffort: (value: "auto" | "standard" | "extended" | "max") => void;
+  setCustomImageModelsText: (value: string) => void;
+  setDefaultImageModel: (value: string) => void;
   setSensitiveWordsText: (value: string) => void;
   setAIReviewField: (key: "enabled" | "base_url" | "api_key" | "model" | "prompt", value: string | boolean) => void;
   setImageStorageField: (key: keyof ImageStorageSettings, value: string | boolean) => void;
@@ -440,6 +442,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         default_thinking_effort: ["standard", "extended", "max"].includes(String(config.default_thinking_effort))
           ? config.default_thinking_effort
           : "auto",
+        custom_image_models: (config.custom_image_models || [])
+          .map((item) => String(item).trim().toLowerCase())
+          .filter(Boolean),
+        default_image_model: String(config.default_image_model || "").trim().toLowerCase(),
         sensitive_words: (config.sensitive_words || []).map((item) => String(item).trim()).filter(Boolean),
         ai_review: {
           enabled: Boolean(config.ai_review?.enabled),
@@ -628,6 +634,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setDefaultThinkingEffort: (value) => {
     set((state) => state.config ? { config: { ...state.config, default_thinking_effort: value } } : {});
+  },
+
+  setCustomImageModelsText: (value) => {
+    set((state) => state.config
+      ? { config: { ...state.config, custom_image_models: value.split("\n").map((item) => item.trim()).filter(Boolean) } }
+      : {});
+  },
+
+  setDefaultImageModel: (value) => {
+    set((state) => state.config ? { config: { ...state.config, default_image_model: value } } : {});
   },
 
   setSensitiveWordsText: (value) => {

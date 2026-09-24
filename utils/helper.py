@@ -14,9 +14,16 @@ from fastapi import HTTPException
 from services.proxy_service import proxy_settings
 from utils.log import logger
 
-BASE_IMAGE_MODELS = {"gpt-image-2", "codex-gpt-image-2"}
+# 内置的 Web 生图模型（走官网画图链路，模型名原样透传给上游）。
+# 与 services.config.DEFAULT_IMAGE_MODELS 保持一致。
+DEFAULT_WEB_IMAGE_MODELS = {
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
+    "gpt-image-2",
+}
 IMAGE_MODEL_PLAN_TYPES = ("plus", "team", "pro")
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
+BASE_IMAGE_MODELS = DEFAULT_WEB_IMAGE_MODELS | {CODEX_IMAGE_MODEL}
 PREFIXED_CODEX_IMAGE_MODELS = {
     f"{plan_type}-{CODEX_IMAGE_MODEL}"
     for plan_type in IMAGE_MODEL_PLAN_TYPES
@@ -106,11 +113,25 @@ def new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def configured_web_image_models() -> set[str]:
+    """可用的 Web 生图模型：内置型号 + 配置中补充的自定义型号。"""
+    try:
+        from services.config import config
+
+        return {str(model or "").strip().lower() for model in config.image_models if str(model or "").strip()}
+    except Exception:
+        return set(DEFAULT_WEB_IMAGE_MODELS)
+
+
+def supported_image_models() -> set[str]:
+    return configured_web_image_models() | PREFIXED_CODEX_IMAGE_MODELS | {CODEX_IMAGE_MODEL}
+
+
 def split_image_model(model: object) -> tuple[str | None, str | None]:
     normalized = str(model or "").strip().lower()
     if not normalized:
         return None, None
-    if normalized in BASE_IMAGE_MODELS:
+    if normalized == CODEX_IMAGE_MODEL or normalized in configured_web_image_models():
         return None, normalized
     for plan_type in IMAGE_MODEL_PLAN_TYPES:
         prefix = f"{plan_type}-"

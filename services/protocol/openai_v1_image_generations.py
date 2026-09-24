@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
+from services.config import config
 from services.protocol.conversation import (
     ConversationRequest,
     collect_image_outputs,
@@ -15,7 +16,7 @@ from utils.image_tokens import compensate_image_generation_output_tokens, count_
 
 def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     prompt = str(body.get("prompt") or "")
-    model = str(body.get("model") or "gpt-image-2")
+    model = str(body.get("model") or config.default_image_model)
     n = int(body.get("n") or 1)
     size = body.get("size")
     quality = str(body.get("quality") or "auto")

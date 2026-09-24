@@ -55,6 +55,8 @@ const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
 const IMAGE_COUNT_STORAGE_KEY = "chatgpt2api:image_last_count";
 const SCROLL_POSITIONS_STORAGE_KEY = "chatgpt2api:image_scroll_positions";
 const SCROLL_TO_LATEST_THRESHOLD = 160;
+// 后端未返回默认生图模型时的兜底值
+const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 
 function loadScrollPositions(): Map<string, number> {
   if (typeof window === "undefined") return new Map();
@@ -150,12 +152,19 @@ function filterImageModels(items: Model[]): ImageModel[] {
     .filter((id, index, list) => id.toLowerCase().includes("image") && list.indexOf(id) === index);
 }
 
-function normalizeStoredImageModel(value: string | null, availableModels: ImageModel[]): ImageModel {
+function normalizeStoredImageModel(
+  value: string | null,
+  availableModels: ImageModel[],
+  fallbackModel: ImageModel,
+): ImageModel {
   const normalized = String(value || "").trim();
   if (normalized && availableModels.includes(normalized)) {
     return normalized;
   }
-  return availableModels[0] || "gpt-image-2";
+  if (fallbackModel && availableModels.includes(fallbackModel)) {
+    return fallbackModel;
+  }
+  return availableModels[0] || DEFAULT_IMAGE_MODEL;
 }
 
 function buildReferenceImageFromResult(image: StoredImage, fileName: string): StoredReferenceImage | null {
@@ -474,8 +483,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [imageWidth, setImageWidth] = useState("1024");
   const [imageHeight, setImageHeight] = useState("1024");
   const [imageQuality, setImageQuality] = useState("auto");
-  const [imageModel, setImageModel] = useState<ImageModel>("gpt-image-2");
-  const [imageModels, setImageModels] = useState<ImageModel[]>(["gpt-image-2"]);
+  const [imageModel, setImageModel] = useState<ImageModel>(DEFAULT_IMAGE_MODEL);
+  const [imageModels, setImageModels] = useState<ImageModel[]>([DEFAULT_IMAGE_MODEL]);
+  const didChooseImageModelRef = useRef(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
   const [referenceImages, setReferenceImages] = useState<StoredReferenceImage[]>([]);
@@ -690,6 +700,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     };
   }, [loadHistory]);
 
+  const handleImageModelChange = useCallback((value: ImageModel) => {
+    didChooseImageModelRef.current = true;
+    setImageModel(value);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -702,15 +717,17 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         }
         setImageModels(available);
         const storedModel = typeof window !== "undefined" ? window.localStorage.getItem(IMAGE_MODEL_STORAGE_KEY) : null;
+        const defaultModel = String(data.default_image_model || "").trim();
         setImageModel((current) => {
-          if (available.includes(current)) {
+          // 已经加载完型号后用户手动切换过，保留用户当前选择
+          if (didChooseImageModelRef.current && available.includes(current)) {
             return current;
           }
-          return normalizeStoredImageModel(storedModel, available);
+          return normalizeStoredImageModel(storedModel, available, defaultModel);
         });
       } catch {
         if (!cancelled) {
-          setImageModels(["gpt-image-2"]);
+          setImageModels([DEFAULT_IMAGE_MODEL]);
         }
       }
     };
@@ -1746,7 +1763,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             onImageWidthChange={setImageWidth}
             onImageHeightChange={setImageHeight}
             onImageQualityChange={setImageQuality}
-            onImageModelChange={setImageModel}
+            onImageModelChange={handleImageModelChange}
             onSubmit={handleSubmit}
             onPickReferenceImage={() => fileInputRef.current?.click()}
             onReferenceImageChange={handleReferenceImageChange}

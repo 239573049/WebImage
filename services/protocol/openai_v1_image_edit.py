@@ -5,6 +5,7 @@ from typing import Any, Iterator
 
 from PIL import Image
 
+from services.config import config
 from services.protocol.conversation import (
     ConversationRequest,
     ImageGenerationError,
@@ -59,7 +60,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     images = body.get("images") or []
     masks = body.get("mask") or []
     images = _composite_mask(images, masks)
-    model = str(body.get("model") or "gpt-image-2")
+    model = str(body.get("model") or config.default_image_model)
     n = int(body.get("n") or 1)
     size = body.get("size")
     quality = str(body.get("quality") or "auto")
