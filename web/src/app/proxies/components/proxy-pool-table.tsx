@@ -6,6 +6,7 @@ import { ArrowDownLeft, ArrowUpRight, LoaderCircle, Network, Pencil, PlugZap, Pl
 import { Tooltip } from "@/components/motion/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import type { ProxyPoolItem } from "@/lib/api";
@@ -17,6 +18,8 @@ type ProxyPoolTableProps = {
   isLoading: boolean;
   pendingIds: Set<string>;
   testingIds: Set<string>;
+  selectedIds: Set<string>;
+  onSelectedIdsChange: (ids: Set<string>) => void;
   onToggle: (item: ProxyPoolItem, enabled: boolean) => void;
   onTest: (item: ProxyPoolItem) => void;
   onEdit: (item: ProxyPoolItem) => void;
@@ -167,6 +170,8 @@ export function ProxyPoolTable({
   isLoading,
   pendingIds,
   testingIds,
+  selectedIds,
+  onSelectedIdsChange,
   onToggle,
   onTest,
   onEdit,
@@ -174,6 +179,22 @@ export function ProxyPoolTable({
   onAdd,
 }: ProxyPoolTableProps) {
   const duplicateIps = useMemo(() => duplicateExitIps(items), [items]);
+  const selectedCount = items.filter((item) => selectedIds.has(item.id)).length;
+  const allSelected = items.length > 0 && selectedCount === items.length;
+
+  const toggleAll = (checked: boolean) => {
+    onSelectedIdsChange(checked ? new Set(items.map((item) => item.id)) : new Set());
+  };
+
+  const toggleOne = (id: string, checked: boolean) => {
+    const next = new Set(selectedIds);
+    if (checked) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    onSelectedIdsChange(next);
+  };
 
   if (items.length === 0) {
     return isLoading ? (
@@ -198,7 +219,14 @@ export function ProxyPoolTable({
       <table className="w-full min-w-[1080px] text-left text-[13px] tabular-nums">
         <thead className="text-xs text-muted-foreground">
           <tr className="border-b border-border [&>th]:h-8 [&>th]:px-2.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
-            <th className="!pl-3.5">名称</th>
+            <th className="!pl-3.5 !pr-0">
+              <Checkbox
+                checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
+                onCheckedChange={toggleAll}
+                aria-label={allSelected ? "取消全选" : "全选代理"}
+              />
+            </th>
+            <th className="!pl-2">名称</th>
             <th>地址</th>
             <th>启用</th>
             <th>健康</th>
@@ -213,6 +241,7 @@ export function ProxyPoolTable({
           {items.map((item) => {
             const isPending = pendingIds.has(item.id);
             const isTesting = testingIds.has(item.id);
+            const isSelected = selectedIds.has(item.id);
             const latency = formatLatency(item.health?.latency_ms);
             const displayName = item.name?.trim();
             const rowLabel = displayName || item.masked_url;
@@ -223,9 +252,18 @@ export function ProxyPoolTable({
                 className={cn(
                   "group border-b border-border/70 text-foreground/80 transition-colors last:border-b-0 hover:bg-accent/60 [&>td]:h-10 [&>td]:px-2.5 [&>td]:whitespace-nowrap",
                   !item.enabled && "text-muted-foreground",
+                  isSelected && "bg-accent/40",
                 )}
               >
-                <td className="!pl-3.5">
+                <td className="!pl-3.5 !pr-0">
+                  <Checkbox
+                    checked={isSelected}
+                    onCheckedChange={(checked) => toggleOne(item.id, checked)}
+                    disabled={isPending}
+                    aria-label={`选择 ${rowLabel}`}
+                  />
+                </td>
+                <td className="!pl-2">
                   <div className="flex max-w-[320px] items-center gap-1.5">
                     <span
                       className={cn("min-w-0 truncate", displayName ? "text-foreground" : "text-muted-foreground")}

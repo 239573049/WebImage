@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageEnter } from "@/components/page-enter";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  batchDeleteProxyPoolEntries,
   deleteProxyPoolEntry,
   fetchProxyPool,
   fetchProxySubscriptions,
@@ -27,7 +28,7 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 
 import { ProxyAddDialog } from "./components/proxy-add-dialog";
-import { ProxyDeleteDialog, ProxyPoolToggleDialog } from "./components/proxy-confirm-dialogs";
+import { ProxyBatchDeleteDialog, ProxyDeleteDialog, ProxyPoolToggleDialog } from "./components/proxy-confirm-dialogs";
 import { ProxyEditDialog } from "./components/proxy-edit-dialog";
 import { ProxyPoolOverviewCard } from "./components/proxy-pool-overview-card";
 import { ProxyPoolTable } from "./components/proxy-pool-table";
@@ -61,6 +62,9 @@ function ProxiesPageContent() {
   const [editingItem, setEditingItem] = useState<ProxyPoolItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<ProxyPoolItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isBatchDeleteOpen, setIsBatchDeleteOpen] = useState(false);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [testingIds, setTestingIds] = useState<Set<string>>(() => new Set());
   // 每次拉取或写操作都会递增；轮询结果回来时如果已经有更新的数据，就丢弃这次结果
@@ -182,6 +186,18 @@ function ProxiesPageContent() {
   const items = pool?.items ?? [];
   const poolEnabled = Boolean(settings?.enabled);
 
+  // 轮询/删除后条目可能已不在池里，把选区里失效的 id 清掉
+  useEffect(() => {
+    setSelectedIds((current) => {
+      if (current.size === 0) {
+        return current;
+      }
+      const ids = new Set(items.map((item) => item.id));
+      const next = new Set([...current].filter((id) => ids.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [items]);
+
   const handleToggleConfirm = async (next: boolean) => {
     setIsTogglingPool(true);
     try {
@@ -284,6 +300,47 @@ function ProxiesPageContent() {
   // 删除确认里的绑定数跟着轮询更新
   const deletingLive = deletingItem ? (items.find((item) => item.id === deletingItem.id) ?? deletingItem) : null;
 
+  // 批量删除确认里的条目也跟着轮询更新（顺带清掉已不存在的）
+  const selectedLive = items.filter((item) => selectedIds.has(item.id));
+
+  const handleBatchDelete = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      return;
+    }
+    setIsBatchDeleting(true);
+    setPendingIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+    try {
+      const data = await batchDeleteProxyPoolEntries(ids);
+      applyPayload(data);
+      setSelectedIds(new Set());
+      setIsBatchDeleteOpen(false);
+      const parts = [`已删除 ${data.deleted} 个代理`];
+      if (data.reassigned) {
+        parts.push(`${data.reassigned} 个账号已改绑`);
+      }
+      if (data.missing?.length) {
+        parts.push(`${data.missing.length} 个已不存在，自动跳过`);
+      }
+      toast.success(parts.join("，"));
+      // 订阅导入的条目可能被删，已导入数跟着变
+      void loadSubscriptions();
+    } catch (error) {
+      toast.error(errorMessage(error, "批量删除失败"));
+    } finally {
+      setIsBatchDeleting(false);
+      setPendingIds((current) => {
+        const next = new Set(current);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  };
+
   const subscriptionItems = subscriptions?.items ?? [];
   const core = subscriptions?.core ?? null;
   // 订阅拉取失败、有节点不可用或内核连不上时，在标签上提示一下
@@ -363,6 +420,8 @@ function ProxiesPageContent() {
                   isLoading={isLoading && !pool}
                   pendingIds={pendingIds}
                   testingIds={testingIds}
+                  selectedIds={selectedIds}
+                  onSelectedIdsChange={setSelectedIds}
                   onToggle={(item, enabled) => void handleToggleItem(item, enabled)}
                   onTest={(item) => void handleTestItem(item)}
                   onEdit={setEditingItem}
@@ -371,7 +430,34 @@ function ProxiesPageContent() {
                 />
               )}
               {items.length > 0 ? (
-                <div className="border-t border-border px-3.5 py-2 text-xs text-muted-foreground tabular-nums">共 {items.length} 个代理</div>
+                <div className="flex min-h-[36px] flex-wrap items-center justify-between gap-2 border-t border-border px-3.5 py-2 text-xs text-muted-foreground tabular-nums">
+                  <span>共 {items.length} 个代理</span>
+                  {selectedIds.size > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <span>已选 {selectedIds.size} 个</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setSelectedIds(new Set())}
+                        disabled={isBatchDeleting}
+                      >
+                        <X className="size-3.5" />
+                        取消选择
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setIsBatchDeleteOpen(true)}
+                        disabled={isBatchDeleting}
+                      >
+                        <Trash2 className="size-3.5" />
+                        批量删除
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </CardContent>
           </Card>
@@ -413,6 +499,13 @@ function ProxiesPageContent() {
         isDeleting={isDeleting}
         onCancel={() => setDeletingItem(null)}
         onConfirm={() => void handleDelete()}
+      />
+      <ProxyBatchDeleteDialog
+        items={isBatchDeleteOpen ? selectedLive : null}
+        hasOtherProxies={items.some((item) => !selectedIds.has(item.id))}
+        isDeleting={isBatchDeleting}
+        onCancel={() => setIsBatchDeleteOpen(false)}
+        onConfirm={() => void handleBatchDelete()}
       />
     </PageEnter>
   );

@@ -1122,6 +1122,16 @@ export async function deleteProxyPoolEntry(proxyId: string) {
   });
 }
 
+export async function batchDeleteProxyPoolEntries(ids: string[]) {
+  return httpRequest<ProxyPoolPayload & { deleted: number; missing: string[]; reassigned: number }>(
+    "/api/proxy/pool/batch-delete",
+    {
+      method: "POST",
+      body: { ids },
+    },
+  );
+}
+
 export async function testProxyPoolEntry(proxyId: string) {
   return httpRequest<ProxyPoolPayload & { result: ProxyPoolTestResult }>(
     `/api/proxy/pool/${encodeURIComponent(proxyId)}/test`,

@@ -113,6 +113,33 @@ class ProxyPoolApiTests(unittest.TestCase):
         self.assertNotEqual(self.bindings()["t1"], legacy_id)
         self.assertTrue(self.pool.has_entry(self.bindings()["t1"]))
 
+    def test_batch_delete(self) -> None:
+        self.post("/api/proxy/pool", {"urls": ["http://a.example:1", "http://b.example:1", "http://c.example:1"]})
+        self.post("/api/proxy/pool/settings", {"enabled": True})
+        ids = [entry["id"] for entry in self.pool.list_entries()]
+        bound_ids = {pid for pid in self.bindings().values() if pid}
+
+        # 重复 id 去重；不存在的进 missing 不挡住其他删除；先删两个绑定了账号的
+        targets = [pid for pid in ids if pid in bound_ids][:2]
+        expected = sum(1 for pid in self.bindings().values() if pid in set(targets))
+        result = self.post("/api/proxy/pool/batch-delete", {"ids": [targets[0], targets[1], targets[1], "px_missing"]})
+        self.assertEqual(result["deleted"], 2)
+        self.assertEqual(result["missing"], ["px_missing"])
+        self.assertEqual(result["reassigned"], expected)
+        remaining = set(ids) - set(targets)
+        self.assertEqual({item["id"] for item in result["items"]}, remaining)
+        self.assertFalse(self.pool.has_entry(targets[0]))
+        self.assertTrue(all(binding in remaining | {""} for binding in self.bindings().values()))
+
+        # 再删剩下的：没有其他代理可改绑，账号解绑
+        last = self.post("/api/proxy/pool/batch-delete", {"ids": sorted(remaining)})
+        self.assertEqual(last["deleted"], 2)
+        self.assertTrue(all(binding == "" for binding in self.bindings().values()))
+
+        # 空 ids 返回 400
+        response = self.client.post("/api/proxy/pool/batch-delete", headers=AUTH_HEADERS, json={"ids": [" ", ""]})
+        self.assertEqual(response.status_code, 400)
+
     def test_errors(self) -> None:
         self.assertEqual(self.client.post("/api/proxy/pool", headers=AUTH_HEADERS, json={"urls": [" "]}).status_code, 400)
         self.assertEqual(self.client.delete("/api/proxy/pool/px_missing", headers=AUTH_HEADERS).status_code, 404)

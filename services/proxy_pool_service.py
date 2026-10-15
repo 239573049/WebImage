@@ -493,6 +493,34 @@ class ProxyPoolService:
             self._save_locked()
             return True
 
+    def delete_entries(self, proxy_ids: list[str]) -> dict[str, Any]:
+        """批量删除；一次加锁一次落盘。返回 {"deleted": [条目], "missing": [不存在的 id]}。
+
+        账号改绑和订阅端口释放由调用方逐条处理（与单条删除一致）。
+        """
+        wanted: list[str] = []
+        seen: set[str] = set()
+        for proxy_id in proxy_ids or []:
+            target = str(proxy_id or "").strip()
+            if target and target not in seen:
+                seen.add(target)
+                wanted.append(target)
+        removed_ids: set[str] = set()
+        deleted: list[dict] = []
+        with self._lock:
+            if wanted:
+                by_id = {entry["id"]: entry for entry in self._entries}
+                removed_ids = {proxy_id for proxy_id in wanted if proxy_id in by_id}
+                if removed_ids:
+                    self._entries = [entry for entry in self._entries if entry["id"] not in removed_ids]
+                    for proxy_id in wanted:
+                        if proxy_id in removed_ids:
+                            deleted.append(dict(by_id[proxy_id]))
+                            self._health.pop(proxy_id, None)
+                            self._reservations.pop(proxy_id, None)
+                    self._save_locked()
+        return {"deleted": deleted, "missing": [proxy_id for proxy_id in wanted if proxy_id not in removed_ids]}
+
     # ── 健康状态 ───────────────────────────────────────────
 
     def _health_locked(self, entry: dict) -> ProxyHealth:

@@ -54,6 +54,55 @@ export function ProxyDeleteDialog({ item, hasOtherProxies, isDeleting, onCancel,
   );
 }
 
+type ProxyBatchDeleteDialogProps = {
+  /** 待删除条目；null 表示对话框关闭 */
+  items: ProxyPoolItem[] | null;
+  /** 池里除选中项以外是否还有代理；没有时绑定的账号只能解除绑定 */
+  hasOtherProxies: boolean;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+};
+
+export function ProxyBatchDeleteDialog({ items, hasOtherProxies, isDeleting, onCancel, onConfirm }: ProxyBatchDeleteDialogProps) {
+  const list = items ?? [];
+  const boundCount = list.reduce((sum, item) => sum + (item.bound_count ?? 0), 0);
+  const hasSubscriptionItems = list.some((item) => item.subscription_id);
+  return (
+    <Dialog open={list.length > 0} onOpenChange={(open) => (!open && !isDeleting ? onCancel() : null)}>
+      <DialogContent showCloseButton={false} className="max-w-md">
+        <DialogHeader className="gap-2">
+          <DialogTitle>批量删除代理</DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm leading-6">
+              <p>确认删除选中的 {list.length} 个代理吗？</p>
+              {boundCount > 0 ? (
+                hasOtherProxies ? (
+                  <p>删除后将把 {boundCount} 个账号改绑到其他代理。</p>
+                ) : (
+                  <p className="rounded-xl bg-warning/12 px-3 py-2 text-warning">
+                    池里没有其他代理可改绑，删除后这 {boundCount} 个账号会解除绑定。
+                  </p>
+                )
+              ) : null}
+              {hasSubscriptionItems ? <p>选中项包含订阅导入的代理，之后可以在订阅的「选择节点」里重新导入。</p> : null}
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onCancel} disabled={isDeleting}>
+            取消
+          </Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={isDeleting}>
+            {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            删除 {list.length} 个
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 type ProxySubscriptionDeleteDialogProps = {
   item: ProxySubscriptionSummary | null;
   isDeleting: boolean;
