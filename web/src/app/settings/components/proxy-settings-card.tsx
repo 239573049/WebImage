@@ -82,7 +82,7 @@ export function ProxySettingsCard() {
                 className="h-11 rounded-xl border-stone-200 bg-white"
               />
               <p className="text-sm text-stone-500">
-                留空表示不使用代理。请按完整地址填写，例如 `http://127.0.0.1:7890`、`http://用户名:密码@127.0.0.1:7890` 或 `socks5://127.0.0.1:7890`。
+                留空表示不使用代理。请按完整地址填写，例如 `http://127.0.0.1:7890`、`http://用户名:密码@127.0.0.1:7890` 或 `socks5://127.0.0.1:7890`。上游 OpenAI / ChatGPT 请求，以及 CPA、sub2api、图片链接拉取、AI 审核、WebDAV、R2 备份、Means、Git 存储等其他出站请求都会使用该代理（账号代理和稳定代理运行时优先于它）；指向 127.0.0.1 / localhost 的自配置服务保持直连。
               </p>
             </div>
 

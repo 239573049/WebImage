@@ -15,6 +15,7 @@ from PIL import Image
 
 from services.config import DATA_DIR, config
 from services.image_runtime_repository import ImageRuntimeRepository, image_runtime_repository
+from services.proxy_service import proxy_settings
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
@@ -84,7 +85,7 @@ class WebDAVClient:
         self.username = _clean(settings.get("webdav_username"))
         self.password = _clean(settings.get("webdav_password"))
         self.root_path = _clean(settings.get("webdav_root_path")).strip("/")
-        self.session = requests.Session()
+        self.session = requests.Session(**proxy_settings.build_session_kwargs(target_url=self.url))
 
     def _auth_kwargs(self) -> dict[str, object]:
         return {"auth": (self.username, self.password)} if self.username or self.password else {}

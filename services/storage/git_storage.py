@@ -59,16 +59,35 @@ class GitStorageBackend(StorageBackend):
         
         return repo_url
 
+    def _proxy_env(self) -> dict[str, str]:
+        """把全局代理以环境变量形式交给 git（libcurl 会读取 *_proxy），避免写入仓库配置。"""
+        # 延迟导入：services.config 会导入本包，模块级导入会形成循环依赖
+        from services.proxy_service import proxy_settings
+
+        proxy = str(proxy_settings.build_session_kwargs(target_url=self.repo_url).get("proxy") or "")
+        if not proxy:
+            return {}
+        return {
+            "http_proxy": proxy,
+            "https_proxy": proxy,
+            "all_proxy": proxy,
+            "HTTP_PROXY": proxy,
+            "HTTPS_PROXY": proxy,
+            "ALL_PROXY": proxy,
+        }
+
     def _clone_or_pull(self) -> Repo:
         """克隆或拉取仓库"""
         repo_path = self.local_cache_dir / "repo"
+        proxy_env = self._proxy_env()
         
         if repo_path.exists() and (repo_path / ".git").exists():
             # 仓库已存在，拉取最新代码
             try:
                 repo = Repo(repo_path)
                 origin = repo.remote("origin")
-                origin.pull(self.branch)
+                with repo.git.custom_environment(**proxy_env):
+                    origin.pull(self.branch)
                 return repo
             except GitCommandError:
                 # 拉取失败，删除重新克隆
@@ -79,6 +98,7 @@ class GitStorageBackend(StorageBackend):
             self.auth_repo_url,
             repo_path,
             branch=self.branch,
+            env=proxy_env or None,
         )
         return repo
 
@@ -139,7 +159,8 @@ class GitStorageBackend(StorageBackend):
         repo.index.add([file_path])
         if repo.is_dirty():
             repo.index.commit(message)
-            repo.remote("origin").push(self.branch)
+            with repo.git.custom_environment(**self._proxy_env()):
+                repo.remote("origin").push(self.branch)
 
     def health_check(self) -> dict[str, Any]:
         """健康检查"""

@@ -40,5 +40,5 @@
 | 图片尺寸参数 | ❌  | 待实现。 |
 | 服务端图片 URL 缓存 | ✅  | 已实现。 |
 | `rt_token` 刷新 | ❌  | 待实现。 |
-| 代理配置功能 | ✅  | 已支持网页端配置全局 HTTP / HTTPS / SOCKS5 / SOCKS5H 代理，并应用到出站请求。 |
+| 代理配置功能 | ✅  | 已支持网页端配置全局 HTTP / HTTPS / SOCKS5 / SOCKS5H 代理，并应用到所有出站请求（上游 OpenAI / ChatGPT、CPA / `sub2api`、图片链接拉取、AI 审核、WebDAV、R2 备份、Means、Git 存储）；账号代理和稳定代理运行时优先于全局代理，指向本机回环地址的自配置服务保持直连。 |
 | Anthropic 协议支持 | ❌  | 待实现。 |

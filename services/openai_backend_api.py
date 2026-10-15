@@ -5,6 +5,7 @@ import mimetypes
 import os
 import random
 import re
+import sys
 import threading
 import time
 
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any, Dict, Iterator, Optional
 from urllib.parse import unquote, urlparse
 
@@ -82,6 +84,8 @@ DEFAULT_CLIENT_BUILD_NUMBER = "6708908"
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_RESPONSES_MODEL = "gpt-5.5"
+CODEX_RESPONSES_TIMEOUT_SECS = 1200
+CODEX_URLLIB_USER_AGENT = f"Python-urllib/{sys.version_info.major}.{sys.version_info.minor}"
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
 SEARCH_POLL_INTERVAL_SECS = 3.0
@@ -198,6 +202,7 @@ class OpenAIBackendAPI:
         self.progress_callback: Callable[[str], None] | None = None
         self.session = requests.Session(**proxy_settings.build_session_kwargs(
             account=self.account,
+            upstream=True,
             impersonate=self.fp["impersonate"],
             verify=True,
         ))
@@ -792,6 +797,34 @@ class OpenAIBackendAPI:
         for event in events:
             yield event
 
+    def _post_codex_responses(
+            self,
+            url: str,
+            body: bytes,
+            headers: Dict[str, str],
+            session_kwargs: Dict[str, Any],
+    ) -> tuple[int, Any, bytes]:
+        """发送 codex responses 请求并读完响应，返回 (状态码, 响应头, 响应体)；HTTP 错误状态码不抛异常。
+
+        已配置代理（账号代理 > 稳定代理 > 显式/全局代理）时走 curl_cffi，因为 urllib 不支持
+        SOCKS 代理；未配置代理时保持原有的 urllib 直连传输，不改变这条链路的直连行为。
+        """
+        if session_kwargs.get("proxy"):
+            # curl_cffi 不带 User-Agent；补上 urllib 直连时的默认值，让上游看到的客户端标识与直连一致
+            headers = {"User-Agent": CODEX_URLLIB_USER_AGENT, **headers}
+            session = requests.Session(**session_kwargs)
+            try:
+                response = session.post(url, data=body, headers=headers, timeout=CODEX_RESPONSES_TIMEOUT_SECS)
+                return int(response.status_code), response.headers, response.content
+            finally:
+                session.close()
+        request = urllib.request.Request(url, body, headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=CODEX_RESPONSES_TIMEOUT_SECS) as raw:
+                return int(getattr(raw, "status", None) or 200), raw.headers, raw.read()
+        except urllib.error.HTTPError as error:
+            return int(error.code), error.headers, error.read()
+
     def iter_codex_image_response_events(
             self,
             prompt: str,
@@ -821,12 +854,7 @@ class OpenAIBackendAPI:
             "tool_choice": {"type": "image_generation"},
             "stream": True,
         }
-        request = urllib.request.Request(
-            self.base_url + path,
-            json.dumps(payload).encode(),
-            self._codex_responses_headers(),
-            method="POST",
-        )
+        session_kwargs = proxy_settings.build_session_kwargs(account=self.account, upstream=True, verify=True)
         account = account_service.get_account(self.access_token) or {}
         token_payload = account_service._decode_jwt_payload(self.access_token)
         auth_claim = token_payload.get("https://api.openai.com/auth")
@@ -835,8 +863,8 @@ class OpenAIBackendAPI:
         logger.info({
             "event": "codex_responses_request_debug",
             "url": self.base_url + path,
-            "transport": "urllib.request",
-            "timeout_secs": 1200,
+            "transport": "curl_cffi" if session_kwargs.get("proxy") else "urllib.request",
+            "timeout_secs": CODEX_RESPONSES_TIMEOUT_SECS,
             "account_email": str(account.get("email") or "").strip(),
             "source_type": str(account.get("source_type") or "").strip(),
             "account_type": str(account.get("type") or "").strip(),
@@ -868,20 +896,26 @@ class OpenAIBackendAPI:
                 if key.lower() != "authorization"
             },
         })
-        try:
-            with urllib.request.urlopen(request, timeout=1200) as raw:
-                yield from self._iter_codex_response_events(raw)
-        except urllib.error.HTTPError as error:
-            body_text = error.read().decode("utf-8", "replace")
+        status_code, response_headers, response_body = self._post_codex_responses(
+            self.base_url + path,
+            json.dumps(payload).encode(),
+            self._codex_responses_headers(),
+            session_kwargs,
+        )
+        if status_code >= 400:
+            body_text = response_body.decode("utf-8", "replace")
             body: Any = body_text
             try:
                 body = json.loads(body_text)
             except Exception:
                 pass
-            self._log_codex_response_failure(path, error.code, error.headers, payload, body)
-            retry_after_header = error.headers.get("Retry-After") if error.headers else None
+            self._log_codex_response_failure(path, status_code, response_headers, payload, body)
+            retry_after_header = response_headers.get("Retry-After") if response_headers else None
             retry_after = int(retry_after_header) if str(retry_after_header or "").isdigit() else None
-            raise UpstreamHTTPError(path, error.code, body, retry_after=retry_after) from error
+            raise UpstreamHTTPError(path, status_code, body, retry_after=retry_after)
+        yield from self._iter_codex_response_events(
+            SimpleNamespace(headers=response_headers, status=status_code, read=lambda: response_body)
+        )
 
     def _prepare_image_conversation(
             self,
@@ -2718,7 +2752,7 @@ class OpenAIBackendAPI:
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用（按代理出口缓存 5 分钟）。"""
         try:
-            egress = str(proxy_settings.get_profile(account=self.account).proxy_url or "direct")
+            egress = str(proxy_settings.get_profile(account=self.account, upstream=True).proxy_url or "direct")
         except Exception:
             egress = "direct"
         now = time.time()

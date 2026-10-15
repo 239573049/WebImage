@@ -19,6 +19,7 @@ from curl_cffi import requests
 from services.config import BASE_DIR, CONFIG_FILE, DATA_DIR, config, load_backup_state, save_backup_state
 from services.image_storage_service import IMAGE_INDEX_FILE
 from services.image_tags_service import TAGS_FILE
+from services.proxy_service import proxy_settings
 
 
 def _utc_now() -> datetime:
@@ -141,7 +142,7 @@ class CloudflareR2Client:
         self.secret_access_key = _clean(settings.get("secret_access_key"))
         self.bucket = _clean(settings.get("bucket"))
         self.prefix = _clean(settings.get("prefix")) or "backups"
-        self.session = requests.Session(impersonate="chrome", verify=True)
+        self.session = requests.Session(**proxy_settings.build_session_kwargs(impersonate="chrome", verify=True))
 
     def validate(self) -> None:
         missing = []

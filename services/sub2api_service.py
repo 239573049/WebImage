@@ -14,6 +14,7 @@ from curl_cffi.requests import Session
 
 from services.account_service import account_service
 from services.config import DATA_DIR
+from services.proxy_service import proxy_settings
 
 
 SUB2API_CONFIG_FILE = DATA_DIR / "sub2api_config.json"
@@ -183,7 +184,7 @@ _token_cache_lock = Lock()
 
 def _login(base_url: str, email: str, password: str) -> tuple[str, float]:
     url = f"{base_url.rstrip('/')}/api/v1/auth/login"
-    session = Session(verify=True)
+    session = Session(**proxy_settings.build_session_kwargs(verify=True, target_url=base_url))
     try:
         response = session.post(
             url,
@@ -277,7 +278,7 @@ def list_remote_accounts(server: dict) -> list[dict]:
     headers = _auth_headers(server)
     group_id = _clean(server.get("group_id"))
 
-    session = Session(verify=True)
+    session = Session(**proxy_settings.build_session_kwargs(verify=True, target_url=base_url))
     items: list[dict] = []
     try:
         page = 1
@@ -338,7 +339,7 @@ def list_remote_groups(server: dict) -> list[dict]:
 
     headers = _auth_headers(server)
 
-    session = Session(verify=True)
+    session = Session(**proxy_settings.build_session_kwargs(verify=True, target_url=base_url))
     items: list[dict] = []
     try:
         page = 1
@@ -393,7 +394,7 @@ def _fetch_access_tokens_for_accounts(server: dict, account_ids: list[str]) -> t
     if not ids:
         return [], []
 
-    session = Session(verify=True)
+    session = Session(**proxy_settings.build_session_kwargs(verify=True, target_url=base_url))
     try:
         response = session.get(
             f"{base_url.rstrip('/')}/api/v1/admin/accounts/data",

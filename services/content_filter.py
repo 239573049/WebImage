@@ -195,7 +195,7 @@ def check_request(text: str) -> None:
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0},
             timeout=60,
-            **proxy_settings.build_session_kwargs(),
+            **proxy_settings.build_session_kwargs(target_url=base_url),
         )
     except Exception as exc:
         _on_failure({

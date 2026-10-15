@@ -374,7 +374,12 @@ class AccountService:
         from services.proxy_service import proxy_settings
 
         client_id = str((account or {}).get("client_id") or self._OAUTH_CLIENT_ID).strip()
-        session = requests.Session(**proxy_settings.build_session_kwargs(account=account, impersonate="chrome110", verify=True))
+        session = requests.Session(**proxy_settings.build_session_kwargs(
+            account=account,
+            upstream=True,
+            impersonate="chrome110",
+            verify=True,
+        ))
         try:
             response = session.post(
                 self._OAUTH_TOKEN_URL,
@@ -497,7 +502,7 @@ class AccountService:
     def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
         """密码重新登录线程入口"""
         try:
-            result = self._login_with_password(email, password)
+            result = self._login_with_password(email, password, self.get_account(access_token))
             if result.get("ok"):
                 # 登录成功，更新账号
                 new_access_token = result.get("access_token", "")
@@ -606,7 +611,7 @@ class AccountService:
             if progress_id:
                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
 
-    def _login_with_password(self, email: str, password: str) -> dict:
+    def _login_with_password(self, email: str, password: str, account: dict | None = None) -> dict:
         """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}"""
         from curl_cffi import requests
         
@@ -619,11 +624,14 @@ class AccountService:
         user_agent = self._OAUTH_USER_AGENT
         
         # 创建 session
-        session_kwargs = {"impersonate": "chrome110", "verify": False}
-        proxy = config.get_proxy_settings()
-        if proxy:
-            session_kwargs["proxy"] = proxy
-        session = requests.Session(**session_kwargs)
+        from services.proxy_service import proxy_settings
+
+        session = requests.Session(**proxy_settings.build_session_kwargs(
+            account=account,
+            upstream=True,
+            impersonate="chrome110",
+            verify=False,
+        ))
         
         try:
             device_id = str(uuid.uuid4())

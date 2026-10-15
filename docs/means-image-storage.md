@@ -33,6 +33,9 @@
 `{endpoint}/{bucket}/{key}`。返回前会移除 URL 的 query 和 fragment，因此
 bucket 或 CDN 必须允许用户通过该普通 URL 读取对象。
 
+上传请求遵循设置页的全局代理；`endpoint` 指向 `127.0.0.1` / `localhost` / `::1`
+时保持直连。
+
 请求示例：
 
 ```bash

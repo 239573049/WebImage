@@ -114,7 +114,7 @@ export function ProxyRuntimeCard() {
         </div>
 
         <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs leading-6 text-stone-600">
-          代理优先级：账号代理 &gt; FlareSolverr 代理链路 &gt; 显式代理 &gt; 全局代理。Cookie / cf_clearance 不会在接口响应中明文返回。
+          代理优先级：账号代理 &gt; FlareSolverr 代理链路（仅上游 OpenAI / ChatGPT 请求）&gt; 显式代理 &gt; 全局代理（其余出站请求同样使用全局代理）。Cookie / cf_clearance 不会在接口响应中明文返回。
         </div>
 
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800">

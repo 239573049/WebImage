@@ -10,6 +10,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from curl_cffi import requests
 
 from services.config import config
+from services.proxy_service import proxy_settings
 
 
 UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
@@ -133,7 +134,10 @@ class MeansStorageService:
                 data=image_data,
                 headers=headers,
                 timeout=int(settings.get("timeout_seconds") or 60),
-                verify=bool(settings.get("verify_ssl", True)),
+                **proxy_settings.build_session_kwargs(
+                    target_url=upload_url,
+                    verify=bool(settings.get("verify_ssl", True)),
+                ),
             )
         except Exception as exc:
             raise MeansStorageError(f"Means 图片上传失败：{exc}") from exc

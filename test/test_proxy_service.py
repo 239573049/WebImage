@@ -67,6 +67,47 @@ class ProxyServiceTests(unittest.TestCase):
             "http://runtime.example:8080",
         )
 
+    def test_runtime_skip_ssl_verify_only_applies_to_upstream_sessions(self) -> None:
+        runtime = make_runtime(
+            enabled=True,
+            egress_mode="single_proxy",
+            proxy_url="http://runtime.example:8080",
+            skip_ssl_verify=True,
+        )
+        store = ProxySettingsStore(FakeConfig(legacy_proxy="http://legacy.example:8080", runtime=runtime))
+
+        self.assertIs(store.build_session_kwargs(verify=True)["verify"], True)
+        self.assertIs(store.build_session_kwargs(upstream=True, verify=True)["verify"], False)
+
+    def test_global_and_account_proxy_apply_without_upstream_flag(self) -> None:
+        store = ProxySettingsStore(FakeConfig(legacy_proxy="http://legacy.example:8080"))
+
+        self.assertEqual(store.build_session_kwargs()["proxy"], "http://legacy.example:8080")
+        self.assertEqual(
+            store.build_session_kwargs(account={"proxy": "http://account.example:8080"})["proxy"],
+            "http://account.example:8080",
+        )
+
+    def test_loopback_targets_stay_direct_while_other_targets_use_global_proxy(self) -> None:
+        store = ProxySettingsStore(FakeConfig(legacy_proxy="http://legacy.example:8080"))
+
+        for target in (
+            "http://127.0.0.1:5178/s3/",
+            "http://localhost:8080",
+            "https://svc.localhost/x",
+            "http://[::1]:9000/",
+            "127.0.0.1:5178",
+            "localhost:8080",
+        ):
+            with self.subTest(target=target):
+                self.assertNotIn("proxy", store.build_session_kwargs(target_url=target))
+        for target in ("https://means.example.test/s3/", "http://192.168.1.10:5178", "http://means:5178", ""):
+            with self.subTest(target=target):
+                self.assertEqual(
+                    store.build_session_kwargs(target_url=target)["proxy"],
+                    "http://legacy.example:8080",
+                )
+
     def test_account_proxy_wins_over_runtime_and_global_proxy(self) -> None:
         runtime = make_runtime(enabled=True, egress_mode="single_proxy", proxy_url="http://runtime.example:8080")
         store = ProxySettingsStore(FakeConfig(legacy_proxy="http://legacy.example:8080", runtime=runtime))

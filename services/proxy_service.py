@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import ipaddress
 import json
 import re
 import threading
@@ -223,12 +224,20 @@ class ProxySettingsStore:
         proxy: str = "",
         resource: bool = False,
         upstream: bool = False,
+        target_url: str = "",
         **session_kwargs,
     ) -> dict[str, object]:
+        """Return curl_cffi session/request kwargs with the effective proxy applied.
+
+        ``upstream`` marks OpenAI / ChatGPT traffic. Only that traffic may use the
+        runtime proxy chain and its ``skip_ssl_verify``; every other outbound
+        request still follows account > explicit > global proxy.
+        ``target_url`` is for user-configured endpoints: loopback targets stay direct.
+        """
         profile = self.get_profile(account=account, proxy=proxy, resource=resource, upstream=upstream)
-        if profile.proxy_url:
+        if profile.proxy_url and not _is_loopback_url(target_url):
             session_kwargs["proxy"] = profile.proxy_url
-        if profile.runtime_enabled and profile.skip_ssl_verify:
+        if upstream and profile.runtime_enabled and profile.skip_ssl_verify:
             session_kwargs["verify"] = False
         return session_kwargs
 
@@ -444,6 +453,18 @@ def _host_from_url(url: str) -> str:
     if not parsed.hostname and candidate and "://" not in candidate:
         parsed = urlparse(f"https://{candidate}")
     return _normalize_host(parsed.hostname or "")
+
+
+def _is_loopback_url(url: str) -> bool:
+    host = _host_from_url(url)
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _status_codes_tuple(value: object) -> tuple[int, ...]:
