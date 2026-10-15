@@ -239,12 +239,52 @@ DEFAULT_CHROME_CANDIDATES = [
 class BrowserPool:
     """常驻一个页面，串行处理求解请求。"""
 
-    def __init__(self, cdp_port: int, page_url: str, user_agent: str | None = None) -> None:
+    def __init__(self, cdp_port: int, page_url: str, user_agent: str | None = None,
+                 launcher: Any | None = None) -> None:
         self.cdp_port = cdp_port
         self.page_url = page_url
         self.user_agent = user_agent
+        self._launcher = launcher          # 无浏览器时用它重新拉起（容器里浏览器可能先挂掉）
         self._lock = threading.Lock()
         self._page: CdpPage | None = None
+        self._process: Any = None
+        self._last_launch = 0.0
+
+    def _cdp_alive(self) -> bool:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.cdp_port}/json/version", timeout=3) as response:
+                json.load(response)
+                return True
+        except Exception:
+            return False
+
+    def probe(self) -> tuple[bool, str]:
+        """(浏览器是否可用, 说明)；供 /health 使用，避免“服务在跑但浏览器挂了”被误判为健康。"""
+        if self._cdp_alive():
+            return True, "browser ready"
+        if self._process is not None and getattr(self._process, "poll", lambda: None)() is not None:
+            return False, f"browser exited (code={self._process.poll()})"
+        return False, "browser not reachable via CDP"
+
+    def ensure_browser(self) -> bool:
+        """确保有一个可用的浏览器；必要时（重新）拉起。"""
+        if self._cdp_alive():
+            return True
+        if self._launcher is None:
+            return False
+        with self._lock:
+            if self._cdp_alive():
+                return True
+            if time.time() - self._last_launch < 5:
+                return False
+            self._last_launch = time.time()
+            try:
+                self._process = self._launcher()
+                LOG.info("浏览器已拉起")
+                return True
+            except Exception as exc:
+                LOG.warning("拉起浏览器失败: %s", str(exc)[:300])
+                return False
 
     def page(self) -> CdpPage:
         if self._page is not None:
@@ -257,6 +297,8 @@ class BrowserPool:
                 except Exception:
                     pass
                 self._page = None
+        if not self.ensure_browser():
+            raise RuntimeError("浏览器不可用（CDP 端口无响应且拉起失败）")
         page = CdpPage(self.cdp_port, self.user_agent)
         page.open(self.page_url)
         self._page = page
@@ -297,19 +339,38 @@ def launch_chrome(cdp_port: int, chrome_bin: str | None, profile_dir: str, proxy
     args = [binary, "--headless=new", "--no-first-run", "--disable-gpu", "--no-default-browser-check",
             "--disable-dev-shm-usage", f"--remote-debugging-port={cdp_port}", f"--user-data-dir={profile_dir}",
             "about:blank"]
+    # 容器里通常以 root 运行，Chromium 必须关闭 sandbox，否则起不来
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        args.insert(1, "--no-sandbox")
+        args.insert(2, "--disable-setuid-sandbox")
     if proxy:
         args.insert(1, f"--proxy-server={proxy}")
-    LOG.info("启动浏览器: %s (cdp %s)", binary, cdp_port)
-    process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    deadline = time.time() + 40
+    LOG.info("启动浏览器: %s (cdp %s, sandbox=%s)", binary, cdp_port,
+             "off" if "--no-sandbox" in args else "on")
+    # 保留浏览器输出，启动失败时能看到真实原因（缺库、sandbox 等）
+    log_path = os.path.join(os.path.dirname(profile_dir) or "/tmp", "chromium.log")
+    try:
+        log_file = open(log_path, "ab", buffering=0)
+    except Exception:
+        log_file = subprocess.DEVNULL
+    process = subprocess.Popen(args, stdout=log_file, stderr=subprocess.STDOUT)
+    deadline = time.time() + 60
     while time.time() < deadline:
+        if process.poll() is not None:
+            break
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version", timeout=3) as response:
                 json.load(response)
                 return process
         except Exception:
             time.sleep(0.5)
-    raise RuntimeError("浏览器 CDP 端口未就绪")
+    tail = ""
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+            tail = "".join(fh.readlines()[-15:]).strip()
+    except Exception:
+        pass
+    raise RuntimeError(f"浏览器 CDP 端口未就绪（exit={process.poll()}）；chromium 输出尾部：{tail[:800]}")
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +398,8 @@ def make_handler(pool: BrowserPool, key: str):
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/health":
-                return self._send(200, {"ok": True})
+                ready, detail = pool.probe()
+                return self._send(200 if ready else 503, {"ok": ready, "browser": detail})
             if not self._authorized():
                 return self._send(401, {"ok": False, "error": "bad key"})
             return self._send(404, {"ok": False, "error": "not found"})
@@ -394,17 +456,26 @@ def main() -> int:
         LOG.error("必须提供 --key（或用环境变量 SENTINEL_SOLVER_KEY），否则任何人都能调用")
         return 2
 
+    launcher = None
     process = None
     if not args.no_launch:
         Path(args.profile_dir).mkdir(parents=True, exist_ok=True)
-        process = launch_chrome(args.cdp_port, args.chrome or None, args.profile_dir, args.proxy)
 
-    pool = BrowserPool(args.cdp_port, args.page_url, args.user_agent or None)
+        def launcher():                   # noqa: ANN202
+            return launch_chrome(args.cdp_port, args.chrome or None, args.profile_dir, args.proxy)
+
+        try:
+            process = launcher()
+        except Exception as exc:
+            # 不退出：容器里浏览器可能因为沙箱/缺库失败，保留服务让后续请求重试并暴露原因
+            LOG.error("首次启动浏览器失败（服务继续运行，请求时会重试）: %s", str(exc)[:400])
+
+    pool = BrowserPool(args.cdp_port, args.page_url, args.user_agent or None, launcher=launcher)
     try:
         pool.page()                       # 预热
         LOG.info("浏览器就绪，页面已加载")
     except Exception as exc:
-        LOG.warning("预热失败（首个请求会重试）: %s", str(exc)[:160])
+        LOG.warning("预热失败（首个请求会重试）: %s", str(exc)[:400])
 
     server = ThreadingHTTPServer((args.host, args.port), make_handler(pool, args.key))
     LOG.info("solver 监听 http://%s:%d（仅本机，需 X-Solver-Key）", args.host, args.port)
