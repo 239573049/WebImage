@@ -1,7 +1,7 @@
-<h1 align="center">ChatGPT2API</h1>
+<h1 align="center">WebImage</h1>
 
 
-<p align="center">ChatGPT2API 主要是对 ChatGPT 官网相关能力进行逆向整理与封装，提供面向 ChatGPT 图片生成、图片编辑、多图组图编辑场景的 OpenAI 兼容图片 API / 代理，并集成在线画图、号池管理、多种账号导入方式与 Docker 自托管部署能力。</p>
+<p align="center">WebImage 主要是对 ChatGPT 官网相关能力进行逆向整理与封装，提供面向 ChatGPT 图片生成、图片编辑、多图组图编辑场景的 OpenAI 兼容图片 API / 代理，并集成在线画图、号池管理、多种账号导入方式与 Docker 自托管部署能力。</p>
 
 > [!WARNING]
 > 免责声明：
@@ -20,8 +20,8 @@
 ### Docker 运行
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
-cd chatgpt2api
+git clone https://github.com/239573049/WebImage.git
+cd WebImage
 docker compose up -d
 ```
 
@@ -50,7 +50,7 @@ docker compose -f docker-compose.warp.yml up -d --build
 - `privoxy`：把 WARP SOCKS5 转成 HTTP 代理。
 - `flaresolverr`：刷新 Cloudflare clearance。
 - `init-config`：幂等写入 `proxy_runtime` 默认配置。
-- `app`：启动 ChatGPT2API 主服务。
+- `app`：启动 WebImage 主服务。
 
 代理生效范围与优先级：
 
@@ -60,13 +60,38 @@ docker compose -f docker-compose.warp.yml up -d --build
 
 可在 `.env` 中调整端口和代理运行时参数，也可在后台设置页的「稳定代理运行时」面板手动保存、测试代理和测试 clearance。
 
+### Sentinel 求解服务（网页 turnstile）
+
+网页端的 turnstile 挑战已改为随机化 opcode 的 VM，纯 Python 复刻无法跟上版本，需要真实 Chromium 执行。项目附带一个常驻浏览器的求解服务：
+
+```bash
+# 1) 启动一个带 CDP 端口的 Chromium（服务也能自行拉起，见 --chrome）
+# 2) 启动求解服务
+python scripts/sentinel_solver.py --port 8788 --cdp-port 9333 --key <your-secret>
+```
+
+然后在 `config.json` 里启用：
+
+```json
+{
+  "sentinel_solver": {
+    "enabled": true,
+    "url": "http://127.0.0.1:8788",
+    "key": "your-secret",
+    "timeout_seconds": 180
+  }
+}
+```
+
+服务只接收挑战参数（prepare 响应 + 令牌种子 `p`），不接收账号 token、Cookie 或用户 prompt；默认只监听 `127.0.0.1` 且必须带 `X-Solver-Key`。未配置时会回退到内置的纯 Python 求解器（当前网页版本下成功率很低）。
+
 ### 本地开发
 
 启动后端：
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
-cd chatgpt2api
+git clone https://github.com/239573049/WebImage.git
+cd WebImage
 uv sync
 uv run main.py
 ```
@@ -74,7 +99,7 @@ uv run main.py
 启动前端：
 
 ```bash
-cd chatgpt2api/web
+cd WebImage/web
 bun install
 bun run dev
 ```
@@ -82,7 +107,7 @@ bun run dev
 后续更新新版本：
 
 ```bash
-docker pull ghcr.io/basketikun/chatgpt2api:latest
+docker pull ghcr.io/239573049/webimage:latest
 docker-compose down
 docker-compose up -d
 
@@ -363,10 +388,10 @@ curl http://localhost:8000/v1/responses \
 
 感谢所有为本项目做出贡献的开发者：
 
-<a href="https://github.com/basketikun/chatgpt2api/graphs/contributors">
-  <img alt="Contributors" src="https://contrib.rocks/image?repo=basketikun/chatgpt2api" />
+<a href="https://github.com/239573049/WebImage/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=239573049/WebImage" />
 </a>
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=basketikun/chatgpt2api&type=date&legend=top-left)](https://www.star-history.com/?repos=basketikun%2Fchatgpt2api&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=239573049/WebImage&type=date&legend=top-left)](https://www.star-history.com/?repos=239573049%2FWebImage&type=date&legend=top-left)
