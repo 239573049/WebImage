@@ -17,72 +17,46 @@
 
 ## 快速开始
 
-### Docker 运行
+### Docker 运行（推荐）
 
 ```bash
 git clone https://github.com/239573049/WebImage.git
 cd WebImage
-docker compose up -d
+cp .env.example .env     # 至少填 CHATGPT2API_AUTH_KEY 与 SENTINEL_SOLVER_KEY
+docker compose up -d --build
 ```
 
-启动前请先在 `config.json` 中设置 `auth-key`，也可以在 `docker-compose.yml` 中通过 `CHATGPT2API_AUTH_KEY` 覆盖。
+该 compose 会启动两个容器：
 
-使用 Means 分布式对象存储返回图片 URL 时，参见
-[Means 图片存储配置](docs/means-image-storage.md) 和
-[配置示例](config.example.json)。
+- `app`：主服务（对外 3000）
+- `sentinel-solver`：自带 Chromium 的 turnstile 求解服务（仅内网 8788，主服务通过 `CHATGPT2API_SENTINEL_SOLVER_*` 接入）
+
+需要图片直链时，可以单独起一个 [Means 对象存储](docs/means-image-storage.md)（默认 compose 不含它）：
 
 - Web 面板：`http://localhost:3000`
 - API 地址：`http://localhost:3000/v1`
 - 数据目录：`./data`
 
-### WARP / FlareSolverr 稳定代理部署
+上游经常被 Cloudflare 拦截时，可在 `.env` 里把稳定代理运行时的出口指向宿主机上的 WARP / Privoxy / 其他 HTTP 代理：
 
-如果图片链路经常遇到 Cloudflare 拦截，可以启用附带的 WARP + Privoxy + FlareSolverr 方案：
-
-```bash
-cp .env.example .env
-docker compose -f docker-compose.warp.yml up -d --build
+```text
+CHATGPT2API_PROXY_RUNTIME_ENABLED=true
+CHATGPT2API_PROXY_RUNTIME_PROXY_URL=http://host.docker.internal:40080
 ```
-
-该 compose 会启动：
-
-- `warp-proxy`：提供 WARP SOCKS5 出口。
-- `privoxy`：把 WARP SOCKS5 转成 HTTP 代理。
-- `flaresolverr`：刷新 Cloudflare clearance。
-- `init-config`：幂等写入 `proxy_runtime` 默认配置。
-- `app`：启动 WebImage 主服务。
 
 代理生效范围与优先级：
 
 - 稳定代理运行时只接管上游 OpenAI / ChatGPT 请求（对话、生图、codex、Token 刷新、OAuth / 密码登录）。
-- 设置页的全局代理（HTTP / HTTPS / SOCKS5 / SOCKS5H）覆盖其余出站请求：CPA / `sub2api` 服务器、图片链接拉取、AI 审核、WebDAV、R2 备份、Means 图片存储和 Git 存储；指向 `127.0.0.1` / `localhost` / `::1` 的自配置服务保持直连。数据库连接和 FlareSolverr 不经过代理。
+- 设置页的全局代理（HTTP / HTTPS / SOCKS5 / SOCKS5H）覆盖其余出站请求：CPA / `sub2api` 服务器、图片链接拉取、AI 审核、WebDAV、R2 备份、Means 图片存储和 Git 存储；指向 `127.0.0.1` / `localhost` / `::1` 的自配置服务保持直连。数据库连接不经过代理。
 - 优先级：账号自身代理 > 稳定代理运行时（仅上游请求）> 显式代理 > 全局代理。
 
-可在 `.env` 中调整端口和代理运行时参数，也可在后台设置页的「稳定代理运行时」面板手动保存、测试代理和测试 clearance。
+也可在后台设置页的「稳定代理运行时」面板手动保存、测试代理。
 
 ### Sentinel 求解服务（网页 turnstile）
 
-网页端的 turnstile 挑战已改为随机化 opcode 的 VM，纯 Python 复刻无法跟上版本，需要真实 Chromium 执行。项目附带一个常驻浏览器的求解服务：
+网页端的 turnstile 挑战已改为随机化 opcode 的 VM，纯 Python 复刻无法跟上版本，需要真实 Chromium 执行。项目附带一个常驻浏览器的求解服务，默认的 `docker compose up -d` 已经包含它；下面是单独部署 / 本地调试的做法。
 
-```bash
-# 1) 启动一个带 CDP 端口的 Chromium（服务也能自行拉起，见 --chrome）
-# 2) 启动求解服务
-python scripts/sentinel_solver.py --port 8788 --cdp-port 9333 --key <your-secret>
-```
-
-**方式一：一条 compose 搞定（推荐）**
-
-```bash
-cp .env.example .env      # 至少填 CHATGPT2API_AUTH_KEY 与 SENTINEL_SOLVER_KEY
-docker compose -f docker-compose.full.yml up -d --build
-```
-
-该 compose 会起两个容器：`app`（主服务）和 `sentinel-solver`（自带 Chromium 的求解服务）。
-solver 只在 compose 内网暴露，主服务通过 `CHATGPT2API_SENTINEL_SOLVER_*` 环境变量接入。
-
-**方式二：手动部署**
-
-solver 已单独打成镜像，也可以只用主服务镜像：
+solver 已单独打成镜像：
 
 ```bash
 docker build -f docker/solver.Dockerfile -t chatgpt2api-sentinel-solver .
@@ -92,7 +66,9 @@ docker run -d --name solver -p 127.0.0.1:8788:8788 -e SENTINEL_SOLVER_KEY=your-s
 本地直接跑（需自备 Chromium）：
 
 ```bash
-SENTINEL_SOLVER_KEY=your-secret python scripts/sentinel_solver.py --chrome /usr/bin/chromium
+# 1) 启动一个带 CDP 端口的 Chromium（服务也能自行拉起，见 --chrome）
+# 2) 启动求解服务
+SENTINEL_SOLVER_KEY=your-secret python scripts/sentinel_solver.py --port 8788 --cdp-port 9333 --key <your-secret>
 ```
 
 然后在 `config.json` 里启用：
@@ -135,10 +111,8 @@ bun run dev
 后续更新新版本：
 
 ```bash
-docker pull ghcr.io/239573049/webimage:latest
-docker-compose down
-docker-compose up -d
-
+docker compose pull
+docker compose up -d
 ```
 
 ### 存储后端配置

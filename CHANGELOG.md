@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [调整] 默认 compose 里不再包含 Means 对象存储，需要图片直链时按 `docs/means-image-storage.md` 单独部署。
++ [调整] 部署方式精简为根目录一份 `docker-compose.yml`（主服务 + Sentinel 求解服务），删除多余的 compose：`docker-compose.warp.yml`（内置的 WARP / Privoxy / FlareSolverr 清障方案，社区版已无注册功能，且它是唯一一个缺求解服务、网页生图跑不起来的 compose）、`docker-compose.local.yml`（与主 compose 重复）、`docker-compose.means.yml`（Means 改为按需独立部署，见 `docs/means-image-storage.md`）。稳定代理运行时改为把 `CHATGPT2API_PROXY_RUNTIME_PROXY_URL` 指向宿主机上的 HTTP 代理，`config.json` 里指向 `privoxy:8118` / `flaresolverr:8191` 的默认值已清空。
+
 + [修复] 补全全局代理的覆盖范围：codex 生图请求（配置代理后改走 curl_cffi，支持 SOCKS）、Token 刷新、密码重新登录和 OAuth 换 token 现在按「账号代理 > 稳定代理 > 全局代理」取代理，密码重新登录沿用账号自身代理；`sub2api` 服务器、WebDAV、R2 备份、Means 图片存储和 Git 存储（clone / pull / push）此前直连，现在也走全局代理。指向 `127.0.0.1` / `localhost` / `::1` 的自配置服务（含 CPA、AI 审核）保持直连。
 + [调整] 稳定代理运行时的「跳过 SSL 校验」只作用于上游 OpenAI / ChatGPT 请求，不再让 CPA、AI 审核、图片链接拉取等其他出站请求跳过证书校验。
 + [调整] 图片请求默认使用的上游模型由 `gpt-5-5` 改为 `gpt-6`，仍可在设置页「默认请求上游模型名称」修改；`gpt-6` 不属于 `-standard` / `-extended` / `-max` 思考强度后缀，请求体不会带 `thinking_effort`。

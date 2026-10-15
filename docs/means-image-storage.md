@@ -6,15 +6,11 @@
 
 ## 一、部署 Means
 
-方式一：用仓库里现成的 [docker-compose.means.yml](../docker-compose.means.yml)，它同时起了 Means 和 WebImage，两者之间用服务名 `means:8080` 互通：
+方式一（推荐）：单独部署 Means，和已有的 WebImage 对接。把 WebImage 的 `CHATGPT2API_MEANS_ENDPOINT` 指向 Means 的宿主机地址（如 `http://127.0.0.1:5178/s3/`）。
 
-```bash
-docker compose -f docker-compose.means.yml up -d
-```
+方式二：Means 和 WebImage 放在同一个 compose 里，把下面这段 `means` 服务加到仓库根目录的 [`docker-compose.yml`](../docker-compose.yml) 里，此时两者用服务名 `means:8080` 互通，endpoint 写 `http://means:8080/s3/`。
 
-先改掉文件里的三个占位符（`CHATGPT2API_AUTH_KEY`、`Means__Console__AdminPassword`、`Means__Storage__DefaultSecretKey`，后两个要和 `CHATGPT2API_MEANS_SECRET_KEY` 一致）。
-
-方式二：只部署 Means，和已有的 WebImage 对接。新建一个目录放下面这个 `docker-compose.yml`：
+下面这个 `docker-compose.yml` 是方式一的写法，新建一个目录放进去即可：
 
 ```yaml
 services:
@@ -127,7 +123,7 @@ environment:
 
 | 部署方式 | `endpoint` |
 | --- | --- |
-| 都在同一个 compose（如用 [docker-compose.means.yml](../docker-compose.means.yml)） | `http://means:8080/s3/`，容器内端口是 8080 |
+| 都在同一个 compose（把 `means` 服务加进仓库的 `docker-compose.yml`） | `http://means:8080/s3/`，容器内端口是 8080 |
 | Means 在宿主机（源码或单容器） | `http://host.docker.internal:5178/s3/`，注意不是 `127.0.0.1` |
 | WebImage 跑在宿主机源码模式 | `http://127.0.0.1:5178/s3/` |
 | Means 在另一台机器 | `http://<means 的地址>:5178/s3/` |

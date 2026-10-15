@@ -28,27 +28,35 @@ git --version
 
 升级和迁移时重点保留以上内容。
 
-## 方式一：普通 Docker 部署
+## 方式一：Docker Compose 部署（推荐）
 
-适合不需要 WARP / FlareSolverr 清障的场景。
+仓库根目录的 `docker-compose.yml` 会启动两个容器：
+
+- `app`：主服务（对外 `3000`）
+- `sentinel-solver`：自带 Chromium 的 turnstile 求解服务（仅内网 `8788`）
+
+网页端 turnstile 挑战需要真实 Chromium，缺了 `sentinel-solver` 网页生图链路不可用，所以它是默认部署的一部分。
 
 ```bash
 git clone https://github.com/239573049/WebImage.git
 cd chatgpt2api
+cp .env.example .env
 ```
 
-设置 `config.json` 中的 `auth-key`，或在 `docker-compose.yml` 中配置：
+至少修改 `.env` 中的两个值：
 
-```yaml
-environment:
-  - CHATGPT2API_AUTH_KEY=your_secret_key
+```text
+CHATGPT2API_AUTH_KEY=your_secret_key_here
+SENTINEL_SOLVER_KEY=change_me_to_a_long_random_string
 ```
 
 启动：
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
+
+需要图片返回直链时，可以另外部署 Means 对象存储（见 [Means 图片存储配置](./means-image-storage.md)），并把 `CHATGPT2API_MEANS_*` 指向它。
 
 访问：
 
@@ -62,10 +70,26 @@ API 基础地址：
 http://localhost:3000/v1
 ```
 
+上游请求经常被 Cloudflare 拦截时，把稳定代理运行时的出口指向宿主机上的 WARP / Privoxy / 其他 HTTP 代理：
+
+```text
+CHATGPT2API_PROXY_RUNTIME_ENABLED=true
+CHATGPT2API_PROXY_RUNTIME_PROXY_URL=http://host.docker.internal:40080
+```
+
+代理运行时配置也可以在后台设置页的「稳定代理运行时」面板中查看、保存和测试。
+
+查看容器状态：
+
+```bash
+docker compose ps
+```
+
 查看日志：
 
 ```bash
 docker logs -f chatgpt2api
+docker logs -f chatgpt2api-solver
 ```
 
 停止：
@@ -74,62 +98,7 @@ docker logs -f chatgpt2api
 docker compose down
 ```
 
-## 方式二：WARP / FlareSolverr 部署
-
-适合上游请求经常遇到 Cloudflare 拦截的场景。该方式会启动：
-
-- `warp-proxy`
-- `privoxy`
-- `flaresolverr`
-- `init-config`
-- `app`
-
-复制环境变量模板：
-
-```bash
-cp .env.example .env
-```
-
-至少修改 `.env` 中的：
-
-```text
-CHATGPT2API_AUTH_KEY=your_secret_key_here
-```
-
-启动：
-
-```bash
-docker compose -f docker-compose.warp.yml up -d --build
-```
-
-访问：
-
-```text
-http://localhost:3000
-```
-
-FlareSolverr 相关配置可以在后台设置页的 `FlareSolverr` tab 中查看和测试。
-
-查看容器状态：
-
-```bash
-docker compose -f docker-compose.warp.yml ps
-```
-
-查看日志：
-
-```bash
-docker logs -f chatgpt2api-warp
-docker logs -f chatgpt2api-flaresolverr
-```
-
-停止：
-
-```bash
-docker compose -f docker-compose.warp.yml down
-```
-
-## 方式三：源码运行
+## 方式二：源码运行
 
 适合本地开发或临时调试。
 
@@ -204,7 +173,7 @@ tar -czf backups/chatgpt2api-$(date +%Y%m%d-%H%M%S).tgz config.json data
 
 也可以在后台设置页配置 Cloudflare R2 备份，用于定时备份关键数据。
 
-## 升级：普通 Docker 部署
+## 升级：Docker Compose 部署
 
 进入项目目录：
 
@@ -219,12 +188,12 @@ mkdir -p backups
 tar -czf backups/chatgpt2api-$(date +%Y%m%d-%H%M%S).tgz config.json .env data
 ```
 
-拉取最新代码和镜像：
+拉取最新代码并重新构建（`docker compose pull` 只更新镜像，本仓库的 `app` 与 `sentinel-solver` 都带 `build:`，所以仍建议带 `--build`）：
 
 ```bash
 git pull
 docker compose pull
-docker compose up -d
+docker compose up -d --build
 ```
 
 查看状态：
@@ -232,35 +201,6 @@ docker compose up -d
 ```bash
 docker compose ps
 docker logs -f chatgpt2api
-```
-
-## 升级：WARP / FlareSolverr 部署
-
-进入项目目录：
-
-```bash
-cd chatgpt2api
-```
-
-备份：
-
-```bash
-mkdir -p backups
-tar -czf backups/chatgpt2api-$(date +%Y%m%d-%H%M%S).tgz config.json .env data
-```
-
-拉取最新代码并重新构建：
-
-```bash
-git pull
-docker compose -f docker-compose.warp.yml up -d --build
-```
-
-查看状态：
-
-```bash
-docker compose -f docker-compose.warp.yml ps
-docker logs -f chatgpt2api-warp
 ```
 
 ## 升级：源码运行
@@ -290,16 +230,10 @@ git log --oneline -n 20
 git checkout <旧版本commit>
 ```
 
-普通 Docker 部署：
+Docker Compose 部署：
 
 ```bash
 docker compose up -d
-```
-
-WARP / FlareSolverr 部署：
-
-```bash
-docker compose -f docker-compose.warp.yml up -d --build
 ```
 
 如果需要恢复数据：
@@ -314,12 +248,6 @@ tar -xzf backups/你的备份文件.tgz
 docker compose down
 ```
 
-或：
-
-```bash
-docker compose -f docker-compose.warp.yml down
-```
-
 ## 常用维护命令
 
 查看容器：
@@ -328,28 +256,17 @@ docker compose -f docker-compose.warp.yml down
 docker compose ps
 ```
 
-查看主服务日志：
+查看主服务日志与求解服务日志：
 
 ```bash
 docker logs -f chatgpt2api
+docker logs -f chatgpt2api-solver
 ```
 
-查看 WARP 部署主服务日志：
-
-```bash
-docker logs -f chatgpt2api-warp
-```
-
-重启普通部署：
+重启：
 
 ```bash
 docker compose restart
-```
-
-重启 WARP 部署：
-
-```bash
-docker compose -f docker-compose.warp.yml restart
 ```
 
 清理未使用镜像：

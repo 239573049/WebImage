@@ -1,15 +1,14 @@
-# 完整可部署：ChatGPT2API 主服务 + Sentinel 求解服务（必须）+ Means 对象存储（可选）
+# 默认部署方案：ChatGPT2API 主服务 + Sentinel 求解服务（必须）
 #
 # 快速开始：
 #   cp .env.example .env     # 至少填 CHATGPT2API_AUTH_KEY 和 SENTINEL_SOLVER_KEY
-#   docker compose -f docker-compose.full.yml up -d --build
-#   # 需要对象存储（图片返回直链）时再加一个 profile：
-#   docker compose -f docker-compose.full.yml --profile means up -d --build
+#   docker compose up -d --build
+#
+# 需要图片直链的对象存储（Means）时，见 docs/means-image-storage.md，单独起一个 compose。
 #
 # 服务说明：
 #   app              主服务（对外 3000）
 #   sentinel-solver  常驻 Chromium，执行网页 turnstile 挑战（仅内网 8788）
-#   means            S3 兼容对象存储，可选；用 profile "means" 启用
 services:
   # ------------------------------------------------------------------
   # Sentinel 求解服务：常驻 Chromium
@@ -72,64 +71,14 @@ services:
       CHATGPT2API_SENTINEL_SOLVER_KEY: ${SENTINEL_SOLVER_KEY:?请在 .env 里设置 SENTINEL_SOLVER_KEY}
       CHATGPT2API_SENTINEL_SOLVER_TIMEOUT_SECONDS: "180"
 
-      # 上游出口代理（可选）；需要 WARP/Privoxy 时填 http://privoxy:8118
+      # 上游出口代理（可选）；填宿主机上的 HTTP 代理地址，例如 http://host.docker.internal:8118
       CHATGPT2API_PROXY_RUNTIME_ENABLED: ${CHATGPT2API_PROXY_RUNTIME_ENABLED:-false}
       CHATGPT2API_PROXY_RUNTIME_EGRESS_MODE: ${CHATGPT2API_PROXY_RUNTIME_EGRESS_MODE:-single_proxy}
       CHATGPT2API_PROXY_RUNTIME_PROXY_URL: ${CHATGPT2API_PROXY_RUNTIME_PROXY_URL:-}
       CHATGPT2API_PROXY_RUNTIME_SKIP_SSL_VERIFY: ${CHATGPT2API_PROXY_RUNTIME_SKIP_SSL_VERIFY:-false}
-
-      # Means 对象存储（可选；配合 --profile means 使用）
-      CHATGPT2API_MEANS_ENABLED: ${CHATGPT2API_MEANS_ENABLED:-false}
-      CHATGPT2API_MEANS_ENDPOINT: ${CHATGPT2API_MEANS_ENDPOINT:-http://means:8080/s3/}
-      CHATGPT2API_MEANS_ACCESS_KEY: ${CHATGPT2API_MEANS_ACCESS_KEY:-meansadmin}
-      CHATGPT2API_MEANS_SECRET_KEY: ${CHATGPT2API_MEANS_SECRET_KEY:-}
-      CHATGPT2API_MEANS_BUCKET: ${CHATGPT2API_MEANS_BUCKET:-generated-images}
-      CHATGPT2API_MEANS_PREFIX: ${CHATGPT2API_MEANS_PREFIX:-chatgpt2api/images}
-      # 客户端访问图片的地址，需包含 bucket 路径；留空则返回容器内地址
-      # CHATGPT2API_MEANS_PUBLIC_BASE_URL: https://files.example.com/generated-images
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:80/',timeout=5)\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 40s
-
-  # ------------------------------------------------------------------
-  # 可选：Means 对象存储（S3 兼容，自带控制台）
-  # 启用：docker compose -f docker-compose.full.yml --profile means up -d --build
-  # ------------------------------------------------------------------
-  means:
-    image: hejiale010426/means
-    container_name: means
-    restart: unless-stopped
-    profiles: ["means"]
-    expose:
-      - "8080"
-    environment:
-      ASPNETCORE_URLS: "http://+:8080"
-      AllowedHosts: "*"
-      # 控制台账号（Means 用默认值会拒绝以生产模式启动，必须替换）
-      Means__Console__AdminUser: ${MEANS_CONSOLE_ADMIN_USER:-meansadmin}
-      Means__Console__AdminPassword: ${MEANS_CONSOLE_ADMIN_PASSWORD:?启用 means 时请在 .env 里设置 MEANS_CONSOLE_ADMIN_PASSWORD}
-      # S3 数据面密钥，需与 app 的 CHATGPT2API_MEANS_ACCESS_KEY / SECRET_KEY 一致
-      Means__Storage__DefaultAccessKey: ${CHATGPT2API_MEANS_ACCESS_KEY:-meansadmin}
-      Means__Storage__DefaultSecretKey: ${CHATGPT2API_MEANS_SECRET_KEY:?启用 means 时请在 .env 里设置 CHATGPT2API_MEANS_SECRET_KEY}
-      Means__Storage__ObjectsPath: "/data/objects"
-      Means__Storage__Disks__0: "/data/xlfs/disk1"
-      Means__Storage__Disks__1: "/data/xlfs/disk2"
-      Means__Storage__Disks__2: "/data/xlfs/disk3"
-      Means__Storage__Disks__3: "/data/xlfs/disk4"
-      Means__S3__AliasPrefix: "/s3"
-    volumes:
-      - means-objects:/data/objects
-      - means-xlfs-disk1:/data/xlfs/disk1
-      - means-xlfs-disk2:/data/xlfs/disk2
-      - means-xlfs-disk3:/data/xlfs/disk3
-      - means-xlfs-disk4:/data/xlfs/disk4
-
-volumes:
-  means-objects:
-  means-xlfs-disk1:
-  means-xlfs-disk2:
-  means-xlfs-disk3:
-  means-xlfs-disk4:
