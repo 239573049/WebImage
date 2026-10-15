@@ -1,0 +1,63 @@
+services:
+  means:
+    image: hejiale010426/means
+    container_name: means
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      ASPNETCORE_URLS: "http://+:8080"
+      AllowedHosts: "*"
+      # 控制台账号（Means 检测到默认值会拒绝以生产模式启动，必须替换）
+      Means__Console__AdminUser: "meansadmin"
+      Means__Console__AdminPassword: "replace-with-your-console-password"
+      # S3 数据面密钥，下面 app 的 CHATGPT2API_MEANS_* 要填同一对
+      Means__Storage__DefaultAccessKey: "meansadmin"
+      Means__Storage__DefaultSecretKey: "replace-with-your-means-secret"
+      Means__Storage__ObjectsPath: "/data/objects"
+      Means__Storage__Disks__0: "/data/xlfs/disk1"
+      Means__Storage__Disks__1: "/data/xlfs/disk2"
+      Means__Storage__Disks__2: "/data/xlfs/disk3"
+      Means__Storage__Disks__3: "/data/xlfs/disk4"
+      Means__S3__AliasPrefix: "/s3"
+    volumes:
+      - means-objects:/data/objects
+      - means-xlfs-disk1:/data/xlfs/disk1
+      - means-xlfs-disk2:/data/xlfs/disk2
+      - means-xlfs-disk3:/data/xlfs/disk3
+      - means-xlfs-disk4:/data/xlfs/disk4
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/239573049/webimage:latest
+    container_name: chatgpt2api
+    restart: unless-stopped
+    depends_on:
+      - means
+    ports:
+      - "3000:80"
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+    environment:
+      STORAGE_BACKEND: sqlite
+      CHATGPT2API_AUTH_KEY: replace-with-your-api-key
+      # 首次启动写入 config.json；之后以 config.json 为准，改这里不再生效
+      CHATGPT2API_MEANS_ENABLED: "true"
+      # 容器内用服务名访问 Means，不要写 127.0.0.1
+      CHATGPT2API_MEANS_ENDPOINT: http://means:8080/s3/
+      CHATGPT2API_MEANS_ACCESS_KEY: meansadmin
+      CHATGPT2API_MEANS_SECRET_KEY: replace-with-your-means-secret
+      CHATGPT2API_MEANS_BUCKET: generated-images
+      CHATGPT2API_MEANS_PREFIX: chatgpt2api/images
+      # 客户端访问图片的地址，需要包含 bucket 路径；留空则返回 http://means:8080/s3/... 这种容器内地址
+      # CHATGPT2API_MEANS_PUBLIC_BASE_URL: https://files.example.com/generated-images
+
+volumes:
+  means-objects:
+  means-xlfs-disk1:
+  means-xlfs-disk2:
+  means-xlfs-disk3:
+  means-xlfs-disk4:

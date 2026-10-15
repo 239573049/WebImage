@@ -412,6 +412,30 @@ def _means_settings_from_env() -> dict[str, object] | None:
     return _normalize_means_settings(values)
 
 
+SENTINEL_SOLVER_ENV_PREFIX = "CHATGPT2API_SENTINEL_SOLVER_"
+
+
+def _sentinel_solver_settings_from_env() -> dict[str, object] | None:
+    """从环境变量读取 sentinel solver 初始配置（CHATGPT2API_SENTINEL_SOLVER_*）。"""
+    values: dict[str, object] = {}
+    for key in DEFAULT_SENTINEL_SOLVER:
+        raw = os.getenv(f"{SENTINEL_SOLVER_ENV_PREFIX}{key.upper()}")
+        if raw is not None and raw.strip():
+            values[key] = raw.strip()
+    if not values:
+        return None
+    return _normalize_sentinel_solver_settings(values)
+
+
+def _validate_sentinel_solver_settings(settings: dict[str, object]) -> None:
+    if not _normalize_bool(settings.get("enabled"), False):
+        return
+    if not str(settings.get("url") or "").strip():
+        raise ValueError("启用 sentinel solver 后必须填写 url")
+    if not str(settings.get("key") or "").strip():
+        raise ValueError("启用 sentinel solver 后必须填写 key（服务端要求 X-Solver-Key 鉴权）")
+
+
 def _validate_means_settings(settings: dict[str, object]) -> None:
     if not _normalize_bool(settings.get("enabled"), False):
         return
@@ -484,6 +508,7 @@ class ConfigStore:
         self.data = self._load()
         self._storage_backend: StorageBackend | None = None
         self._seed_means_from_env()
+        self._seed_sentinel_solver_from_env()
         if _is_invalid_auth_key(self.auth_key):
             raise ValueError(
                 "❌ auth-key 未设置！\n"
@@ -496,6 +521,21 @@ class ConfigStore:
 
     def _load(self) -> dict[str, object]:
         return _read_json_object(self.path, name="config.json")
+
+    def _seed_sentinel_solver_from_env(self) -> None:
+        """首次启动时用环境变量初始化 sentinel solver 配置（仅当 config.json 中尚无该配置）"""
+        if "sentinel_solver" in self.data:
+            return
+        env_settings = _sentinel_solver_settings_from_env()
+        if env_settings is None:
+            return
+        try:
+            _validate_sentinel_solver_settings(env_settings)
+        except ValueError as e:
+            raise ValueError(f"环境变量 sentinel_solver 配置无效：{e}") from e
+        self.data["sentinel_solver"] = env_settings
+        self._save()
+        print(f"[config] Initialized sentinel_solver from {SENTINEL_SOLVER_ENV_PREFIX}* environment variables")
 
     def _seed_means_from_env(self) -> None:
         """首次启动时用环境变量初始化 means 配置

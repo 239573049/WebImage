@@ -70,6 +70,31 @@ docker compose -f docker-compose.warp.yml up -d --build
 python scripts/sentinel_solver.py --port 8788 --cdp-port 9333 --key <your-secret>
 ```
 
+**方式一：一条 compose 搞定（推荐）**
+
+```bash
+cp .env.example .env      # 至少填 CHATGPT2API_AUTH_KEY 与 SENTINEL_SOLVER_KEY
+docker compose -f docker-compose.full.yml up -d --build
+```
+
+该 compose 会起两个容器：`app`（主服务）和 `sentinel-solver`（自带 Chromium 的求解服务）。
+solver 只在 compose 内网暴露，主服务通过 `CHATGPT2API_SENTINEL_SOLVER_*` 环境变量接入。
+
+**方式二：手动部署**
+
+solver 已单独打成镜像，也可以只用主服务镜像：
+
+```bash
+docker build -f docker/solver.Dockerfile -t chatgpt2api-sentinel-solver .
+docker run -d --name solver -p 127.0.0.1:8788:8788 -e SENTINEL_SOLVER_KEY=your-secret chatgpt2api-sentinel-solver
+```
+
+本地直接跑（需自备 Chromium）：
+
+```bash
+SENTINEL_SOLVER_KEY=your-secret python scripts/sentinel_solver.py --chrome /usr/bin/chromium
+```
+
 然后在 `config.json` 里启用：
 
 ```json
@@ -82,6 +107,9 @@ python scripts/sentinel_solver.py --port 8788 --cdp-port 9333 --key <your-secret
   }
 }
 ```
+
+也可以只用环境变量首次初始化（`CHATGPT2API_SENTINEL_SOLVER_ENABLED` / `_URL` / `_KEY` / `_TIMEOUT_SECONDS`）——
+仅当 `config.json` 里还没有 `sentinel_solver` 时生效，之后以 `config.json` 为准。
 
 服务只接收挑战参数（prepare 响应 + 令牌种子 `p`），不接收账号 token、Cookie 或用户 prompt；默认只监听 `127.0.0.1` 且必须带 `X-Solver-Key`。未配置时会回退到内置的纯 Python 求解器（当前网页版本下成功率很低）。
 

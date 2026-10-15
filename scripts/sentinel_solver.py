@@ -372,14 +372,17 @@ def make_handler(pool: BrowserPool, key: str):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="常驻浏览器的 sentinel turnstile 求解服务")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8788)
-    parser.add_argument("--key", default=os.environ.get("SENTINEL_SOLVER_KEY", ""))
-    parser.add_argument("--cdp-port", type=int, default=9333)
+    # 所有参数都可用环境变量给默认值，容器里无需写长命令行
+    parser.add_argument("--host", default=os.environ.get("SENTINEL_SOLVER_HOST", "127.0.0.1"),
+                        help="监听地址；容器内需要 0.0.0.0")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("SENTINEL_SOLVER_PORT", "8788")))
+    parser.add_argument("--key", default=os.environ.get("SENTINEL_SOLVER_KEY", ""),
+                        help="必须设置；请求需带 X-Solver-Key")
+    parser.add_argument("--cdp-port", type=int, default=int(os.environ.get("SENTINEL_SOLVER_CDP_PORT", "9333")))
     parser.add_argument("--chrome", default=os.environ.get("SENTINEL_SOLVER_CHROME", ""))
-    parser.add_argument("--profile-dir", default="/tmp/chatgpt2api-solver-profile")
+    parser.add_argument("--profile-dir", default=os.environ.get("SENTINEL_SOLVER_PROFILE_DIR", "/tmp/chatgpt2api-solver-profile"))
     parser.add_argument("--proxy", default=os.environ.get("SENTINEL_SOLVER_PROXY", ""))
-    parser.add_argument("--page-url", default="https://chatgpt.com/")
+    parser.add_argument("--page-url", default=os.environ.get("SENTINEL_SOLVER_PAGE_URL", "https://chatgpt.com/"))
     parser.add_argument("--user-agent", default="")
     parser.add_argument("--no-launch", action="store_true", help="复用已存在的浏览器，不自行启动")
     parser.add_argument("--verbose", action="store_true")
