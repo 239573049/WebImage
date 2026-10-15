@@ -48,6 +48,9 @@ class ProxyRuntimeProfile:
     skip_ssl_verify: bool = False
     reset_session_status_codes: tuple[int, ...] = field(default_factory=lambda: (403,))
     clearance: dict[str, object] = field(default_factory=dict, repr=False)
+    # 代理池出口：proxy_id 为实际使用的池条目，pool_route 为 bound / borrowed / unbound / round_robin
+    proxy_id: str = ""
+    pool_route: str = ""
 
     @property
     def clearance_enabled(self) -> bool:
@@ -161,13 +164,67 @@ class ProxySettingsStore:
         self,
         config_store=None,
         clearance_provider_factory: Callable[[str], FlareSolverrClearanceProvider] | None = None,
+        pool_provider: Callable[[], object | None] | None = None,
     ) -> None:
         self._config = config_store or config
         self._clearance_provider_factory = clearance_provider_factory or FlareSolverrClearanceProvider
+        # 代理池按需取（避免与 proxy_pool_service 循环引用）；未提供时完全沿用旧逻辑
+        self._pool_provider = pool_provider
+        # 账号未绑定时由账号服务完成绑定并返回 proxy_id（account_service 导入时注册）
+        self._account_binder: Callable[[dict], str] | None = None
         self._clearance_cache: dict[tuple[str, str], ClearanceBundle] = {}
         self._provider_cache: dict[str, FlareSolverrClearanceProvider] = {}
         self._flight_locks: dict[tuple[str, str], threading.Lock] = {}
         self._lock = threading.RLock()
+
+    def set_account_binder(self, binder: Callable[[dict], str] | None) -> None:
+        self._account_binder = binder
+
+    def pool(self):
+        if self._pool_provider is None:
+            return None
+        try:
+            return self._pool_provider()
+        except Exception:
+            return None
+
+    def track_session(self, session, profile: ProxyRuntimeProfile):
+        """池出口的 session 交给代理池统计健康状态；其他出口原样返回。"""
+        pool = self.pool() if profile is not None and profile.proxy_id else None
+        if pool is None:
+            return session
+        return pool.track_session(session, profile)
+
+    def _resolve_pool(self, account: dict | None, proxy_id: str) -> tuple[dict | None, str]:
+        """代理池开启时解析上游出口；返回 (池条目, 路由)，不走池时返回 (None, "")。"""
+        pool = self.pool()
+        if pool is None or not pool.is_enabled():
+            return None, ""
+        account = account if isinstance(account, dict) else {}
+        from services.proxy_pool_service import account_route_key
+
+        route_key = account_route_key(account)
+        explicit_id = _clean(proxy_id)
+        if explicit_id:
+            entry, route = pool.route_bound(explicit_id, route_key)
+            if entry is not None:
+                return entry, route
+        if not account.get("access_token"):
+            return pool.route_anonymous()
+        bound_id = _clean(account.get("proxy_id"))
+        if bound_id and pool.has_entry(bound_id):
+            return pool.route_bound(bound_id, route_key)
+        # 未绑定或绑定悬空：先让账号服务落一个持久绑定，失败才临时挑
+        if self._account_binder is not None:
+            try:
+                bound_id = _clean(self._account_binder(account))
+            except Exception:
+                bound_id = ""
+            if bound_id:
+                entry, route = pool.route_bound(bound_id, route_key)
+                if entry is not None:
+                    return entry, route
+        return pool.route_unbound(route_key)
 
     def get_profile(
         self,
@@ -175,11 +232,34 @@ class ProxySettingsStore:
         proxy: str = "",
         resource: bool = False,
         upstream: bool = False,
+        proxy_id: str = "",
+        use_pool: bool = True,
     ) -> ProxyRuntimeProfile:
+        """解析出口。上游流量（upstream=True）在代理池开启时优先走池：
+
+        绑定代理 / 借用代理 / 匿名轮询 > 账号旧代理字段 > runtime single_proxy > 显式 > 全局。
+        ``use_pool=False`` 用于状态展示、测试等不应推进轮询的场景。
+        """
         runtime = self._get_runtime_settings()
         clearance = dict(runtime.get("clearance") if isinstance(runtime.get("clearance"), dict) else {})
         runtime_enabled = bool(runtime.get("enabled"))
         egress_mode = str(runtime.get("egress_mode") or "direct").strip().lower()
+
+        if upstream and use_pool:
+            entry, route = self._resolve_pool(account, proxy_id)
+            if entry is not None:
+                return ProxyRuntimeProfile(
+                    proxy_url=normalize_proxy_url(str(entry.get("url") or "")),
+                    proxy_source="pool",
+                    resource=bool(resource),
+                    runtime_enabled=runtime_enabled,
+                    egress_mode=egress_mode,
+                    skip_ssl_verify=bool(runtime.get("skip_ssl_verify")) if runtime_enabled else False,
+                    reset_session_status_codes=_status_codes_tuple(runtime.get("reset_session_status_codes")),
+                    clearance=clearance,
+                    proxy_id=str(entry.get("id") or ""),
+                    pool_route=route,
+                )
 
         account_proxy = _clean((account or {}).get("proxy") if isinstance(account, dict) else "")
         explicit_proxy = _clean(proxy)
@@ -225,16 +305,21 @@ class ProxySettingsStore:
         resource: bool = False,
         upstream: bool = False,
         target_url: str = "",
+        profile: ProxyRuntimeProfile | None = None,
+        proxy_id: str = "",
         **session_kwargs,
     ) -> dict[str, object]:
         """Return curl_cffi session/request kwargs with the effective proxy applied.
 
         ``upstream`` marks OpenAI / ChatGPT traffic. Only that traffic may use the
-        runtime proxy chain and its ``skip_ssl_verify``; every other outbound
-        request still follows account > explicit > global proxy.
+        proxy pool, the runtime proxy chain and its ``skip_ssl_verify``; every other
+        outbound request still follows account > explicit > global proxy.
         ``target_url`` is for user-configured endpoints: loopback targets stay direct.
+        ``profile`` pins an already resolved egress (one resolution per client).
         """
-        profile = self.get_profile(account=account, proxy=proxy, resource=resource, upstream=upstream)
+        if profile is None:
+            profile = self.get_profile(account=account, proxy=proxy, resource=resource, upstream=upstream,
+                                       proxy_id=proxy_id)
         if profile.proxy_url and not _is_loopback_url(target_url):
             session_kwargs["proxy"] = profile.proxy_url
         if upstream and profile.runtime_enabled and profile.skip_ssl_verify:
@@ -346,7 +431,7 @@ class ProxySettingsStore:
             self._clearance_cache.pop(key, None)
 
     def get_runtime_status(self) -> dict[str, object]:
-        profile = self.get_profile(upstream=True)
+        profile = self.get_profile(upstream=True, use_pool=False)
         with self._lock:
             cached_hosts = [host for _proxy, host in self._clearance_cache]
             cached_count = len(self._clearance_cache)
@@ -359,6 +444,20 @@ class ProxySettingsStore:
             "clearance_mode": profile.clearance_mode,
             "has_clearance_bundle": cached_count > 0,
             "cached_clearance_hosts": sorted(set(cached_hosts)),
+            "proxy_pool": self._pool_status(),
+        }
+
+    def _pool_status(self) -> dict[str, object]:
+        pool = self.pool()
+        if pool is None:
+            return {"enabled": False, "total": 0, "enabled_count": 0, "unhealthy": 0}
+        entries = pool.list_entries()
+        unhealthy = sum(1 for entry in entries if pool.health(entry["id"]).get("state") == "unhealthy")
+        return {
+            "enabled": pool.is_enabled(),
+            "total": len(entries),
+            "enabled_count": sum(1 for entry in entries if entry.get("enabled")),
+            "unhealthy": unhealthy,
         }
 
     def _get_runtime_settings(self) -> dict[str, object]:
@@ -566,7 +665,7 @@ def test_proxy(url: str = "", *, timeout: float = 15.0) -> dict:
     candidate = normalize_proxy_url(_clean(url))
     proxy_source = "input"
     if not candidate:
-        profile = proxy_settings.get_profile(upstream=True)
+        profile = proxy_settings.get_profile(upstream=True, use_pool=False)
         candidate = profile.proxy_url
         proxy_source = profile.proxy_source
     result_base = {"proxy_source": proxy_source, "has_proxy": bool(candidate)}
@@ -666,4 +765,10 @@ def test_clearance(target_url: str = "https://chatgpt.com") -> dict:
     }
 
 
-proxy_settings = ProxySettingsStore()
+def _default_pool_provider():
+    from services.proxy_pool_service import proxy_pool
+
+    return proxy_pool
+
+
+proxy_settings = ProxySettingsStore(pool_provider=_default_pool_provider)

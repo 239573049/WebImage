@@ -19,12 +19,14 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { AnimatedNumber } from "@/components/motion/animated-number";
 import { PageEnter } from "@/components/page-enter";
 import { PageLoader } from "@/components/page-loader";
 import { SearchInput } from "@/components/search-input";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -50,20 +52,31 @@ import {
   deleteAccounts,
   fetchAccounts,
   fetchModels,
+  fetchProxyPool,
   fetchRefreshProgress,
   fetchReLoginProgress,
   reLoginAccounts,
   refreshAccounts,
   resetAccountsHealth,
   testProxy,
+  testProxyPoolEntry,
   updateAccount,
   type Account,
   type AccountRefreshResponse,
   type AccountStatus,
   type Model,
+  type ProxyPoolItem,
+  type ProxyPoolPayload,
   type RefreshProgressResponse,
 } from "@/lib/api";
 import { EASE_OUT, SPRING_LAYOUT } from "@/lib/ease";
+import {
+  getProxyHealthMeta,
+  isProxyUnavailable,
+  maskProxyUrl,
+  pickProxyPoolPayload,
+  proxyPoolLabel,
+} from "@/lib/proxy-pool";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 
@@ -247,6 +260,77 @@ function HeaderStat({ label, children }: { label: string; children: ReactNode })
   );
 }
 
+/** 编辑对话框里的池代理选项：名称 + 健康状态 */
+function ProxyPoolOption({ item }: { item: ProxyPoolItem }) {
+  const health = getProxyHealthMeta(item.health?.state);
+  return (
+    <SelectItem value={item.id}>
+      <span className="flex min-w-0 items-center gap-2">
+        <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", health.dotClass)} />
+        <span className="truncate text-foreground">{proxyPoolLabel(item)}</span>
+        <span className={cn("shrink-0 text-xs", health.textClass)}>{health.label}</span>
+        {!item.enabled ? <span className="shrink-0 text-xs text-muted-foreground">已禁用</span> : null}
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.bound_count} 个账号</span>
+      </span>
+    </SelectItem>
+  );
+}
+
+/** 列表里的代理列：池开启时显示绑定的代理名，代理禁用或异常时标「借用中」；池关闭时显示脱敏后的手填代理 */
+function AccountProxyCell({
+  account,
+  poolEnabled,
+  poolItemsById,
+}: {
+  account: Account;
+  poolEnabled: boolean;
+  poolItemsById: Map<string, ProxyPoolItem>;
+}) {
+  if (!poolEnabled) {
+    const masked = maskProxyUrl(account.proxy);
+    return masked ? (
+      <span className="block max-w-[160px] truncate font-mono text-foreground/80" title={masked}>
+        {masked}
+      </span>
+    ) : (
+      <span className="text-muted-foreground">全局</span>
+    );
+  }
+
+  const proxyId = account.proxy_id ?? "";
+  if (!proxyId) {
+    return <span className="text-muted-foreground" title="首次请求时自动分配">未绑定</span>;
+  }
+  const item = poolItemsById.get(proxyId);
+  if (!item) {
+    return <span className="text-muted-foreground" title={`代理 ${proxyId} 不在池中`}>已失效</span>;
+  }
+  const health = getProxyHealthMeta(item.health?.state);
+  const borrowing = isProxyUnavailable(item);
+  return (
+    <span
+      className="inline-flex max-w-[180px] items-center gap-1.5"
+      title={[
+        proxyPoolLabel(item),
+        item.masked_url,
+        `健康：${health.label}`,
+        !item.enabled ? "代理已禁用" : null,
+        borrowing ? "绑定的代理不可用，正在临时借用其他代理" : null,
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
+      <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", health.dotClass)} />
+      <span className="truncate text-foreground/80">{proxyPoolLabel(item)}</span>
+      {borrowing ? (
+        <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[10.5px]">
+          借用中
+        </Badge>
+      ) : null}
+    </span>
+  );
+}
+
 function AccountsPageContent() {
   const didLoadRef = useRef(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -260,6 +344,9 @@ function AccountsPageContent() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
+  const [editProxyId, setEditProxyId] = useState("");
+  // 代理池开启时，账号编辑改为从池里选择代理；拉取失败（例如后端尚不支持）按未开启处理
+  const [proxyPool, setProxyPool] = useState<ProxyPoolPayload | null>(null);
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
@@ -304,6 +391,15 @@ function AccountsPageContent() {
     }
   };
 
+  const loadProxyPool = async () => {
+    try {
+      const data = await fetchProxyPool();
+      setProxyPool(pickProxyPoolPayload(data));
+    } catch {
+      /* 静默失败：保持旧的手填代理输入 */
+    }
+  };
+
   const loadModels = async () => {
     setIsLoadingModels(true);
     try {
@@ -324,12 +420,17 @@ function AccountsPageContent() {
     didLoadRef.current = true;
     void loadAccounts();
     void loadModels();
+    void loadProxyPool();
 
     // 清理进度条定时器
     return () => {
       if (progressRef.current) clearInterval(progressRef.current);
     };
   }, []);
+
+  const poolEnabled = Boolean(proxyPool?.settings.enabled);
+  const poolItems = useMemo(() => proxyPool?.items ?? [], [proxyPool]);
+  const poolItemsById = useMemo(() => new Map(poolItems.map((item) => [item.id, item])), [poolItems]);
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter(
@@ -757,9 +858,36 @@ function AccountsPageContent() {
     setEditingAccount(account);
     setEditStatus(account.status);
     setEditProxy(account.proxy ?? "");
+    setEditProxyId(account.proxy_id ?? "");
+  };
+
+  const handleTestPoolProxy = async () => {
+    const item = poolItemsById.get(editProxyId);
+    if (!item) {
+      toast.error("请先选择代理");
+      return;
+    }
+    setIsTestingProxy(true);
+    try {
+      const data = await testProxyPoolEntry(item.id);
+      setProxyPool(pickProxyPoolPayload(data));
+      if (data.result?.ok) {
+        toast.success(`代理可用（${data.result.latency_ms} ms${data.result.exit_ip ? `，出口 ${data.result.exit_ip}` : ""}）`);
+      } else {
+        toast.error(`代理不可用：${data.result?.error ?? "未知错误"}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "测试代理失败");
+    } finally {
+      setIsTestingProxy(false);
+    }
   };
 
   const handleTestAccountProxy = async () => {
+    if (poolEnabled) {
+      await handleTestPoolProxy();
+      return;
+    }
     const candidate = editProxy.trim();
     if (!candidate) {
       toast.error("请先填写代理地址");
@@ -785,10 +913,16 @@ function AccountsPageContent() {
 
     setIsUpdating(true);
     try {
-      const data = await updateAccount(editingAccount.access_token, {
-        status: editStatus,
-        proxy: editProxy.trim(),
-      });
+      const updates: Parameters<typeof updateAccount>[1] = { status: editStatus };
+      if (poolEnabled) {
+        // 池开启时只提交改过的绑定，不再发送旧的 proxy 字段
+        if (editProxyId && editProxyId !== (editingAccount.proxy_id ?? "")) {
+          updates.proxy_id = editProxyId;
+        }
+      } else if (editProxy.trim() !== (editingAccount.proxy ?? "").trim()) {
+        updates.proxy = editProxy.trim();
+      }
+      const data = await updateAccount(editingAccount.access_token, updates);
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
       setEditingAccount(null);
@@ -902,7 +1036,10 @@ function AccountsPageContent() {
             size="icon-sm"
             aria-label="重新加载列表"
             title="重新加载列表"
-            onClick={() => void loadAccounts()}
+            onClick={() => {
+              void loadAccounts();
+              void loadProxyPool();
+            }}
             disabled={isBusy}
           >
             <RefreshCw className={cn("size-4", isLoading ? "animate-spin" : "")} />
@@ -943,7 +1080,9 @@ function AccountsPageContent() {
         <DialogContent showCloseButton={false} className="max-w-lg">
           <DialogHeader>
             <DialogTitle>编辑账户</DialogTitle>
-            <DialogDescription>手动修改账号状态和专属代理。</DialogDescription>
+            <DialogDescription>
+              {poolEnabled ? "手动修改账号状态和绑定的代理池代理。" : "手动修改账号状态和专属代理。"}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -963,25 +1102,63 @@ function AccountsPageContent() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground/80">账号代理</label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  value={editProxy}
-                  onChange={(event) => setEditProxy(event.target.value)}
-                  placeholder="留空走全局代理，例如 http://127.0.0.1:7890"
-                />
-                <Button
-                  variant="outline"
-                  className="sm:w-24"
-                  onClick={() => void handleTestAccountProxy()}
-                  disabled={isTestingProxy}
-                >
-                  {isTestingProxy ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
-                  测试
-                </Button>
+            {poolEnabled ? (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground/80">绑定代理</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Select value={editProxyId} onValueChange={setEditProxyId} disabled={poolItems.length === 0}>
+                    <SelectTrigger aria-label="绑定代理" className="min-w-0 flex-1">
+                      <SelectValue placeholder={poolItems.length === 0 ? "代理池里还没有代理" : "未绑定（首次请求时自动分配）"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {editProxyId && !poolItemsById.has(editProxyId) ? (
+                        <SelectItem value={editProxyId} disabled>
+                          已失效的代理
+                        </SelectItem>
+                      ) : null}
+                      {poolItems.map((item) => (
+                        <ProxyPoolOption key={item.id} item={item} />
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    className="sm:w-24"
+                    onClick={() => void handleTestAccountProxy()}
+                    disabled={isTestingProxy || !poolItemsById.has(editProxyId)}
+                  >
+                    {isTestingProxy ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                    测试
+                  </Button>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  绑定会一直保留，只有删除代理才会自动改绑；绑定的代理禁用或异常时会临时借用其他代理。
+                  <Link href="/proxies" className="ml-1 text-primary underline-offset-4 hover:underline">
+                    管理代理池
+                  </Link>
+                </p>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground/80">账号代理</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={editProxy}
+                    onChange={(event) => setEditProxy(event.target.value)}
+                    placeholder="留空走全局代理，例如 http://127.0.0.1:7890"
+                  />
+                  <Button
+                    variant="outline"
+                    className="sm:w-24"
+                    onClick={() => void handleTestAccountProxy()}
+                    disabled={isTestingProxy}
+                  >
+                    {isTestingProxy ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                    测试
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -1113,7 +1290,7 @@ function AccountsPageContent() {
 
           {currentRows.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-[13px] tabular-nums">
+              <table className="w-full min-w-[1060px] text-left text-[13px] tabular-nums">
                 <thead className="text-xs text-muted-foreground">
                   <tr className="border-b border-border [&>th]:h-8 [&>th]:px-2.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
                     <th className="w-10 !pr-0 !pl-3.5">
@@ -1132,6 +1309,7 @@ function AccountsPageContent() {
                     <th className="text-right">在途</th>
                     <th className="text-right">成功</th>
                     <th className="text-right">失败</th>
+                    <th>代理</th>
                     <th>创建</th>
                     <th className="w-[92px]">
                       <span className="sr-only">操作</span>
@@ -1230,6 +1408,9 @@ function AccountsPageContent() {
                         </td>
                         <td className="text-right font-mono text-xs">{account.success}</td>
                         <td className="text-right font-mono text-xs text-muted-foreground">{account.fail}</td>
+                        <td className="text-xs">
+                          <AccountProxyCell account={account} poolEnabled={poolEnabled} poolItemsById={poolItemsById} />
+                        </td>
                         <td className="text-xs text-muted-foreground">
                           {formatCreatedAt((account as Account & { created_at?: string | null }).created_at)}
                         </td>

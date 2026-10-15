@@ -1,4 +1,4 @@
-import { Bug, ImageIcon, Images, LayoutGrid, ScrollText, Settings, Users, type LucideIcon } from "lucide-react";
+import { Bug, ImageIcon, Images, LayoutGrid, Network, ScrollText, Settings, Users, type LucideIcon } from "lucide-react";
 
 import type { AuthRole } from "@/store/auth";
 
@@ -30,6 +30,7 @@ const adminNav: NavEntry[] = [
     icon: LayoutGrid,
     children: [
       { kind: "link", href: "/accounts", label: "号池管理", icon: Users, keywords: ["账号", "账户", "token", "额度", "account"] },
+      { kind: "link", href: "/proxies", label: "代理池", icon: Network, keywords: ["代理", "proxy", "IP", "出口"] },
       { kind: "link", href: "/image-manager", label: "图片管理", icon: Images, keywords: ["存储", "磁盘", "标签", "gallery"] },
       { kind: "link", href: "/logs", label: "日志管理", icon: ScrollText, keywords: ["调用", "RPM", "统计", "logs"] },
     ],
