@@ -229,12 +229,16 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
+        # 出口每个实例只解析一次：代理池轮询/借用时，主 session、Codex、bootstrap 缓存和 solver 必须同一出口
+        self.proxy_profile = proxy_settings.get_profile(account=self.account, upstream=True)
         self.session = requests.Session(**proxy_settings.build_session_kwargs(
             account=self.account,
             upstream=True,
+            profile=self.proxy_profile,
             impersonate=self.fp["impersonate"],
             verify=True,
         ))
+        proxy_settings.track_session(self.session, self.proxy_profile)
         self.session.headers.update({
             "User-Agent": self.user_agent,
             "Origin": self.base_url,
@@ -839,6 +843,7 @@ class OpenAIBackendAPI:
             # curl_cffi 不带 User-Agent；补上 urllib 直连时的默认值，让上游看到的客户端标识与直连一致
             headers = {"User-Agent": CODEX_URLLIB_USER_AGENT, **headers}
             session = requests.Session(**session_kwargs)
+            proxy_settings.track_session(session, self._egress_profile())
             try:
                 response = session.post(url, data=body, headers=headers, timeout=CODEX_RESPONSES_TIMEOUT_SECS)
                 return int(response.status_code), response.headers, response.content
@@ -880,7 +885,9 @@ class OpenAIBackendAPI:
             "tool_choice": {"type": "image_generation"},
             "stream": True,
         }
-        session_kwargs = proxy_settings.build_session_kwargs(account=self.account, upstream=True, verify=True)
+        session_kwargs = proxy_settings.build_session_kwargs(
+            account=self.account, upstream=True, profile=self._egress_profile(), verify=True,
+        )
         account = account_service.get_account(self.access_token) or {}
         token_payload = account_service._decode_jwt_payload(self.access_token)
         auth_claim = token_payload.get("https://api.openai.com/auth")
@@ -2848,10 +2855,18 @@ class OpenAIBackendAPI:
             response = request(url, **kwargs)
         return response
 
+    def _egress_profile(self):
+        """本实例固定的出口；绕过 __init__ 构造的实例（测试）按需解析一次。"""
+        profile = getattr(self, "proxy_profile", None)
+        if profile is None:
+            profile = proxy_settings.get_profile(account=getattr(self, "account", None) or {}, upstream=True)
+            self.proxy_profile = profile
+        return profile
+
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用（按代理出口缓存 5 分钟）。"""
         try:
-            egress = str(proxy_settings.get_profile(account=self.account, upstream=True).proxy_url or "direct")
+            egress = str(self._egress_profile().proxy_url or "direct")
         except Exception:
             egress = "direct"
         now = time.time()
@@ -2879,8 +2894,14 @@ class OpenAIBackendAPI:
         turnstile_info = requirements_payload.get("turnstile") or {}
         if not (turnstile_info.get("required") and turnstile_info.get("dx")):
             return ""
+        # 池出口时让 solver 走同一个代理，turnstile 求解与业务请求同一 IP
         try:
-            token = sentinel_solver_service.solve_turnstile(requirements_payload, source_p)
+            profile = self._egress_profile()
+            solver_proxy = profile.proxy_url if profile.proxy_id else ""
+        except Exception:
+            solver_proxy = ""
+        try:
+            token = sentinel_solver_service.solve_turnstile(requirements_payload, source_p, proxy=solver_proxy)
         except Exception as exc:
             logger.warning({"event": "sentinel_solver_exception", "error": str(exc)[:200]})
             token = None

@@ -624,6 +624,9 @@ class BackupService:
             self._add_bytes_to_archive(archive, "backup-metadata.json", _json_bytes(metadata))
             if include.get("config"):
                 self._add_file_to_archive(archive, CONFIG_FILE, "config.json")
+                # 代理池与账号的 proxy_id 绑定配套，随配置一起备份
+                self._add_file_to_archive(archive, DATA_DIR / "proxy_pool.json", "data/proxy_pool.json")
+                self._add_file_to_archive(archive, DATA_DIR / "proxy_subscriptions.json", "data/proxy_subscriptions.json")
             if include.get("cpa"):
                 self._add_file_to_archive(archive, DATA_DIR / "cpa_config.json", "data/cpa_config.json")
             if include.get("sub2api"):

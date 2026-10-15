@@ -73,6 +73,7 @@ class AccountUpdateRequest(BaseModel):
     status: str | None = None
     quota: int | None = None
     proxy: str | None = None
+    proxy_id: str | None = None
 
 
 class CPAPoolCreateRequest(BaseModel):
@@ -359,7 +360,21 @@ def create_router() -> APIRouter:
         access_token = str(body.access_token or "").strip()
         if not access_token:
             raise HTTPException(status_code=400, detail={"error": "access_token is required"})
-        updates = {key: value for key, value in {"type": body.type, "status": body.status, "quota": body.quota, "proxy": body.proxy}.items() if value is not None}
+        updates = {
+            key: value
+            for key, value in {
+                "type": body.type,
+                "status": body.status,
+                "quota": body.quota,
+                "proxy": body.proxy,
+                "proxy_id": body.proxy_id,
+            }.items()
+            if value is not None
+        }
+        try:
+            updates = account_service.normalize_proxy_updates(updates)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
         if not updates:
             raise HTTPException(status_code=400, detail={"error": "还没有检测到改动，请修改后再保存"})
         account = account_service.update_account(access_token, updates)
@@ -405,6 +420,8 @@ def create_router() -> APIRouter:
             "id_token": tokens["id_token"],
             "source_type": "oauth_login",
         }
+        if tokens.get("proxy_id"):
+            payload["proxy_id"] = tokens["proxy_id"]
         add_result = await run_in_threadpool(account_service.add_account_items, [payload])
         refresh_result = await run_in_threadpool(
             account_service.refresh_accounts, [tokens["access_token"]]

@@ -70,6 +70,8 @@ class AccountService:
         self._image_inflight: dict[str, int] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
+        # 代理池（测试可注入）；为 None 时用全局 proxy_pool
+        self._proxy_pool = None
 
     def _get_cumulative_file(self) -> Path:
         from services.config import DATA_DIR
@@ -238,6 +240,7 @@ class AccountService:
         normalized["email"] = normalized.get("email") or None
         normalized["user_id"] = normalized.get("user_id") or None
         normalized["proxy"] = str(normalized.get("proxy") or "").strip()
+        normalized["proxy_id"] = str(normalized.get("proxy_id") or "").strip()
         source_type = normalized.get("source_type")
         if not source_type and str(normalized.get("export_type") or "").strip().lower() == "codex":
             source_type = "codex"
@@ -374,12 +377,15 @@ class AccountService:
         from services.proxy_service import proxy_settings
 
         client_id = str((account or {}).get("client_id") or self._OAUTH_CLIENT_ID).strip()
+        profile = proxy_settings.get_profile(account=account, upstream=True)
         session = requests.Session(**proxy_settings.build_session_kwargs(
             account=account,
             upstream=True,
+            profile=profile,
             impersonate="chrome110",
             verify=True,
         ))
+        proxy_settings.track_session(session, profile)
         try:
             response = session.post(
                 self._OAUTH_TOKEN_URL,
@@ -626,12 +632,15 @@ class AccountService:
         # 创建 session
         from services.proxy_service import proxy_settings
 
+        profile = proxy_settings.get_profile(account=account, upstream=True)
         session = requests.Session(**proxy_settings.build_session_kwargs(
             account=account,
             upstream=True,
+            profile=profile,
             impersonate="chrome110",
             verify=False,
         ))
+        proxy_settings.track_session(session, profile)
         
         try:
             device_id = str(uuid.uuid4())
@@ -1397,9 +1406,15 @@ class AccountService:
         if not deduped:
             return {"added": 0, "skipped": 0, "items": self.list_accounts()}
 
+        pool = self._pool()
+        pool_enabled = pool.is_enabled()
+        for payload in deduped.values():
+            self._convert_payload_proxy(payload, pool, pool_enabled)
+
         with self._lock:
             added = 0
             skipped = 0
+            counts = self._proxy_binding_counts_locked() if pool_enabled else {}
             for access_token, payload in deduped.items():
                 current = self._accounts.get(access_token)
                 if current is None:
@@ -1412,6 +1427,12 @@ class AccountService:
                 incoming = dict(payload)
                 if not incoming.get("created_at"):
                     incoming.pop("created_at", None)
+                current_proxy_id = str(current.get("proxy_id") or "")
+                if current_proxy_id and pool.has_entry(current_proxy_id):
+                    # 粘性：重新导入不覆盖已有绑定
+                    incoming.pop("proxy_id", None)
+                    if pool_enabled:
+                        incoming.pop("proxy", None)
                 account = self._normalize_account(
                     {
                         **current,
@@ -1421,6 +1442,14 @@ class AccountService:
                     }
                 )
                 if account is not None:
+                    if pool_enabled:
+                        proxy_id = account["proxy_id"]
+                        if not (proxy_id and pool.has_entry(proxy_id)):
+                            # 新账号落库即绑定：新增后紧接着就会访问上游
+                            account["proxy_id"] = ""
+                            self._assign_proxy_locked(account, counts)
+                        elif proxy_id != current_proxy_id:
+                            counts[proxy_id] = counts.get(proxy_id, 0) + 1
                     self._accounts[access_token] = account
             self._save_accounts()
             items = [dict(item) for item in self._accounts.values()]
@@ -1996,6 +2025,181 @@ class AccountService:
             "by_type": by_type,
         }
 
+    # ── 代理池绑定 ─────────────────────────────────────────
+    # 绑定写在账号的 proxy_id 上：随 token 刷新自然迁移，随账号删除自然消失；
+    # 各代理的负载每次从账号实时统计，不单独缓存。锁顺序：先 self._lock，再代理池锁。
+
+    def _pool(self):
+        if self._proxy_pool is not None:
+            return self._proxy_pool
+        from services.proxy_pool_service import proxy_pool
+
+        return proxy_pool
+
+    def _proxy_binding_counts_locked(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for account in self._accounts.values():
+            proxy_id = str(account.get("proxy_id") or "")
+            if proxy_id:
+                counts[proxy_id] = counts.get(proxy_id, 0) + 1
+        return counts
+
+    def proxy_binding_counts(self) -> dict[str, int]:
+        with self._lock:
+            return self._proxy_binding_counts_locked()
+
+    def proxy_binding_snapshot(self) -> list[dict[str, str]]:
+        """代理池页面统计用：每个账号的 proxy_id 与稳定标识字段。"""
+        with self._lock:
+            return [
+                {
+                    "proxy_id": str(account.get("proxy_id") or ""),
+                    "user_id": str(account.get("user_id") or ""),
+                    "email": str(account.get("email") or ""),
+                    "access_token": str(account.get("access_token") or ""),
+                }
+                for account in self._accounts.values()
+            ]
+
+    def _assign_proxy_locked(self, account: dict, counts: dict[str, int]) -> str:
+        proxy_id = self._pool().pick_least_loaded(counts)
+        if proxy_id:
+            account["proxy_id"] = proxy_id
+            counts[proxy_id] = counts.get(proxy_id, 0) + 1
+        return proxy_id
+
+    @staticmethod
+    def _convert_payload_proxy(payload: dict, pool, pool_enabled: bool) -> None:
+        """导入数据里的代理字段：外来/失效的 proxy_id 丢弃；池开启时 proxy 字符串转成池条目。"""
+        incoming_id = str(payload.get("proxy_id") or "").strip()
+        if incoming_id and not pool.has_entry(incoming_id):
+            payload.pop("proxy_id", None)
+        legacy = str(payload.get("proxy") or "").strip()
+        if pool_enabled and legacy:
+            proxy_id = pool.ensure_entry(legacy, source="import")
+            if proxy_id:
+                payload["proxy_id"] = proxy_id
+                payload["proxy"] = ""
+
+    def ensure_proxy_binding(self, access_token: str) -> str:
+        """池开启时保证账号有一个有效绑定，返回 proxy_id；池关闭或池里没有可用代理返回空串。
+
+        检查与写入在同一把锁里完成，并发的首个请求不会重复分配。
+        """
+        pool = self._pool()
+        if not access_token or not pool.is_enabled():
+            return ""
+        with self._lock:
+            token = self._resolve_access_token_locked(access_token)
+            account = self._accounts.get(token)
+            if account is None:
+                return ""
+            current = str(account.get("proxy_id") or "")
+            if current and pool.has_entry(current):
+                return current
+            proxy_id = self._assign_proxy_locked(account, self._proxy_binding_counts_locked())
+            if proxy_id:
+                self._save_accounts()
+        if proxy_id:
+            log_service.add(LOG_TYPE_ACCOUNT, "账号绑定代理", {"token": anonymize_token(token), "proxy_id": proxy_id})
+        return proxy_id
+
+    def bind_unbound_accounts(self) -> int:
+        """给未绑定（或绑定悬空）的账号分配代理；已有绑定一律不动。"""
+        pool = self._pool()
+        if not pool.is_enabled():
+            return 0
+        assigned = 0
+        with self._lock:
+            counts = self._proxy_binding_counts_locked()
+            for account in self._accounts.values():
+                current = str(account.get("proxy_id") or "")
+                if current and pool.has_entry(current):
+                    continue
+                if self._assign_proxy_locked(account, counts):
+                    assigned += 1
+            if assigned:
+                self._save_accounts()
+        if assigned:
+            log_service.add(LOG_TYPE_ACCOUNT, f"为 {assigned} 个账号分配代理", {"assigned": assigned})
+        return assigned
+
+    def reassign_proxy_bindings(self, old_proxy_id: str) -> int:
+        """代理被删除后，把绑在它上面的账号逐个改绑到当前最少的代理；池里没有可用代理时清空绑定。"""
+        old_proxy_id = str(old_proxy_id or "").strip()
+        if not old_proxy_id:
+            return 0
+        with self._lock:
+            targets = [account for account in self._accounts.values() if account.get("proxy_id") == old_proxy_id]
+            if not targets:
+                return 0
+            counts = self._proxy_binding_counts_locked()
+            counts.pop(old_proxy_id, None)
+            for account in targets:
+                account["proxy_id"] = ""
+                self._assign_proxy_locked(account, counts)
+            self._save_accounts()
+        log_service.add(LOG_TYPE_ACCOUNT, f"代理删除，改绑 {len(targets)} 个账号",
+                        {"proxy_id": old_proxy_id, "reassigned": len(targets)})
+        return len(targets)
+
+    def migrate_legacy_account_proxies(self) -> dict[str, int]:
+        """把账号上手填的 proxy 迁进代理池：按规范化 URL 去重成池条目，写 proxy_id 并清空旧字段。"""
+        pool = self._pool()
+        before = {entry["id"] for entry in pool.list_entries()}
+        migrated = 0
+        with self._lock:
+            for account in self._accounts.values():
+                legacy = str(account.get("proxy") or "").strip()
+                if not legacy:
+                    continue
+                proxy_id = pool.ensure_entry(legacy, source="legacy_account")
+                if not proxy_id:
+                    continue
+                account["proxy_id"] = proxy_id
+                account["proxy"] = ""
+                migrated += 1
+            if migrated:
+                self._save_accounts()
+        created = len({entry["id"] for entry in pool.list_entries()} - before)
+        pool.mark_legacy_migrated()
+        if migrated:
+            log_service.add(LOG_TYPE_ACCOUNT, f"账号代理迁入代理池：{migrated} 个账号，新建 {created} 个代理",
+                            {"migrated": migrated, "created": created})
+        return {"migrated": migrated, "created": created}
+
+    def activate_proxy_pool(self) -> dict[str, Any]:
+        """池开启（或启动时已开启）：迁移旧账号代理，再给未绑定账号分配。"""
+        if not self._pool().is_enabled():
+            return {"migration": {"migrated": 0, "created": 0}, "assigned": 0}
+        migration = self.migrate_legacy_account_proxies()
+        return {"migration": migration, "assigned": self.bind_unbound_accounts()}
+
+    def normalize_proxy_updates(self, updates: dict) -> dict:
+        """账号编辑的代理字段：proxy_id 必须是现有池条目；池开启时 proxy 字符串转成池条目。
+
+        池开启时 proxy == "" 视为未修改（编辑框总会带上这个字段）。
+        """
+        updates = dict(updates)
+        pool = self._pool()
+        if "proxy_id" in updates:
+            proxy_id = str(updates.get("proxy_id") or "").strip()
+            if not proxy_id:
+                updates.pop("proxy_id")
+            elif not pool.has_entry(proxy_id):
+                raise ValueError("代理不存在")
+            else:
+                updates["proxy_id"] = proxy_id
+        if "proxy" in updates and pool.is_enabled():
+            legacy = str(updates.pop("proxy") or "").strip()
+            if legacy and "proxy_id" not in updates:
+                proxy_id = pool.ensure_entry(legacy, source="manual")
+                if not proxy_id:
+                    raise ValueError("无效的代理地址")
+                updates["proxy_id"] = proxy_id
+                updates["proxy"] = ""
+        return updates
+
     def account_health(self) -> dict:
         stats = self.get_stats()
         return {
@@ -2006,3 +2210,16 @@ class AccountService:
 
 
 account_service = AccountService(config.get_storage_backend())
+
+
+def _bind_account_for_proxy_profile(account: dict) -> str:
+    return account_service.ensure_proxy_binding(str((account or {}).get("access_token") or ""))
+
+
+def _register_proxy_binder() -> None:
+    from services.proxy_service import proxy_settings
+
+    proxy_settings.set_account_binder(_bind_account_for_proxy_profile)
+
+
+_register_proxy_binder()

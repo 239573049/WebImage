@@ -101,6 +101,7 @@ class OAuthLoginService:
 
         authorize_url = f"{auth_base}/api/accounts/authorize?{urlencode(params)}"
 
+        proxy_id = self._reserve_pool_proxy()
         with self._lock:
             self._purge_expired_locked()
             self._sessions[session_id] = {
@@ -108,6 +109,7 @@ class OAuthLoginService:
                 "state": state,
                 "created_at": time.time(),
                 "redirect_uri": platform_oauth_redirect_uri,
+                "proxy_id": proxy_id,
             }
 
         return {
@@ -180,21 +182,54 @@ class OAuthLoginService:
                 "state 不匹配。常见原因：你点过两次\"打开授权页面\"，但浏览器里登录的还是前一次的窗口。请点\"重新生成\"重来。"
             )
 
+        proxy_id = str(session.get("proxy_id") or "")
         tokens = self._exchange_code(
             code,
             session["code_verifier"],
             session.get("redirect_uri") or platform_oauth_redirect_uri,
+            proxy_id=proxy_id,
         )
         # 仅在成功兑换之后才消耗 session
         with self._lock:
             self._sessions.pop(picked_sid, None)
+        if proxy_id:
+            self._release_pool_proxy(proxy_id)
+            # 新账号直接绑到换 token 用的代理：首次出现的 IP 与之后一致
+            tokens = {**tokens, "proxy_id": proxy_id}
         return tokens
 
     @staticmethod
-    def _exchange_code(code: str, code_verifier: str, redirect_uri: str) -> dict[str, str]:
+    def _reserve_pool_proxy() -> str:
+        """代理池开启时预分配一个代理（按绑定数最少），换 token 走它，登录完成后账号绑定到它。"""
+        try:
+            from services.account_service import account_service
+            from services.proxy_pool_service import proxy_pool
+
+            if not proxy_pool.is_enabled():
+                return ""
+            proxy_id = proxy_pool.pick_least_loaded(account_service.proxy_binding_counts())
+            if proxy_id:
+                proxy_pool.reserve(proxy_id)
+            return proxy_id
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _release_pool_proxy(proxy_id: str) -> None:
+        try:
+            from services.proxy_pool_service import proxy_pool
+
+            proxy_pool.release(proxy_id)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _exchange_code(code: str, code_verifier: str, redirect_uri: str, *, proxy_id: str = "") -> dict[str, str]:
         """调用 /api/accounts/oauth/token 用 code+verifier 换 token 三件套。"""
-        kwargs = proxy_settings.build_session_kwargs(upstream=True, impersonate="chrome", verify=False)
+        profile = proxy_settings.get_profile(upstream=True, proxy_id=proxy_id)
+        kwargs = proxy_settings.build_session_kwargs(upstream=True, profile=profile, impersonate="chrome", verify=False)
         session = requests.Session(**kwargs)
+        proxy_settings.track_session(session, profile)
         try:
             response = session.post(
                 f"{auth_base}/api/accounts/oauth/token",

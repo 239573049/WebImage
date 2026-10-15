@@ -2,6 +2,11 @@
 
 ## Unreleased
 
++ [新增] 代理池：后台「资源管理 → 代理池」可批量录入多个上游代理。开启后账号按绑定数均分并永久粘性绑定（绑定写在账号的 `proxy_id` 上，token 刷新不丢），只有删除代理时才把它名下的账号改绑到其他代理；绑定代理被禁用或连续出错时临时借用另一个代理（同一账号固定借同一个），恢复后自动回到原代理；无账号请求在池内轮询，OAuth 登录预分配代理并直接绑定新账号。账号上原有的手填代理在首次开启时迁进池。后台每分钟探测各代理（`/cdn-cgi/trace`，显示延迟与出口 IP）。池数据在 `data/proxy_pool.json`，随配置备份。
++ [新增] Sentinel 求解服务支持按代理分通道：请求里带上账号的池代理时，在该代理专属的浏览器上下文（独立 Cookie）里求解，turnstile 与业务请求同一出口；通道数与空闲回收可用 `SENTINEL_SOLVER_MAX_LANES` / `SENTINEL_SOLVER_LANE_IDLE_SECS` 配置，通道全忙时排队等待而不是直接失败。转发器支持 HTTP / HTTPS / SOCKS5 带认证上游，浏览器禁用绕过代理的 WebRTC UDP。注意：求解服务现在会收到代理地址（含凭据），仍不接收账号 token、Cookie 或 prompt。
++ [新增] 代理池支持 Clash / V2Ray 订阅：添加订阅后勾选节点导入，HTTP / SOCKS5 节点直接使用；ss / vmess / vless / trojan / hysteria2 / tuic 等节点通过可选的 mihomo 内核（compose profile `proxy-core`）转成内网固定端口。订阅默认每 6 小时刷新，节点参数变化不影响账号绑定，节点消失时自动禁用、回来时自动恢复；删除订阅会一并删除其导入的代理。「批量添加」也可直接粘贴 vmess / vless / trojan / ss / hysteria2 / tuic 分享链接或 base64 订阅内容。新增依赖 PyYAML。
++ [修复] Sentinel 求解服务在浏览器崩溃后重新拉起时会死锁（求解持有页面锁时再次获取同一把锁），之后所有求解请求都会卡住。
+
 + [调整] Web 管理后台整体改版为控制台风格（深色海军蓝 / 浅色两套主题），界面组件改用 [beUI](https://beui.dev) 动效组件库：可收起为图标栏的侧栏（`⌘B`，移动端为抽屉）、顶栏搜索与 `⌘K` 命令面板、按钮 / 开关 / 复选框 / 标签页 / 日期范围选择器，以及数字滚动的指标卡；日志页的调用统计改为每分钟调用柱状图 + 按接口用量。侧栏和页面标题统一显示为 WebImage。
 + [调整] 默认 compose 里不再包含 Means 对象存储，需要图片直链时按 `docs/means-image-storage.md` 单独部署。
 + [调整] 部署方式精简为根目录一份 `docker-compose.yml`（主服务 + Sentinel 求解服务），删除多余的 compose：`docker-compose.warp.yml`（内置的 WARP / Privoxy / FlareSolverr 清障方案，社区版已无注册功能，且它是唯一一个缺求解服务、网页生图跑不起来的 compose）、`docker-compose.local.yml`（与主 compose 重复）、`docker-compose.means.yml`（Means 改为按需独立部署，见 `docs/means-image-storage.md`）。稳定代理运行时改为把 `CHATGPT2API_PROXY_RUNTIME_PROXY_URL` 指向宿主机上的 HTTP 代理，`config.json` 里指向 `privoxy:8118` / `flaresolverr:8191` 的默认值已清空。

@@ -4,6 +4,7 @@
 需要真实 Chromium 环境执行。这里对接一个独立部署的求解服务：
 
 - 只发送挑战参数（prepare 响应 + 令牌种子 p），不发送账号 token、Cookie 或用户 prompt；
+- 账号走代理池时额外发送该代理地址（含凭据），让 solver 与业务请求同一出口 IP；
 - 服务端自带密钥鉴权，默认只监听本机端口；
 - 未配置时返回 None，调用方回退到内置的纯 Python 求解器。
 """
@@ -58,13 +59,26 @@ class SentinelSolverService:
             headers["X-Solver-Key"] = key
         return headers
 
-    def solve_turnstile(self, requirements: dict[str, Any], p_token: str, timeout: float | None = None) -> str | None:
-        """返回 turnstile token；未配置或失败时返回 None（由调用方回退）。"""
+    def solve_turnstile(
+            self,
+            requirements: dict[str, Any],
+            p_token: str,
+            timeout: float | None = None,
+            proxy: str = "",
+    ) -> str | None:
+        """返回 turnstile token；未配置或失败时返回 None（由调用方回退）。
+
+        ``proxy`` 为账号的池出口：solver 用对应代理的浏览器上下文求解；该通道失败不会退回默认出口。
+        """
         settings = self.settings()
         if not self.enabled():
             return None
         url = str(settings["url"]).strip().rstrip("/") + "/turnstile"
-        payload = json.dumps({"requirements": requirements, "p": p_token}).encode("utf-8")
+        body: dict[str, Any] = {"requirements": requirements, "p": p_token}
+        proxy = str(proxy or "").strip()
+        if proxy:
+            body["proxy"] = proxy
+        payload = json.dumps(body).encode("utf-8")
         wait = float(timeout if timeout is not None else (settings.get("timeout_seconds") or 180))
         try:
             request = urllib.request.Request(url, data=payload, headers=self._headers(settings), method="POST")
@@ -85,8 +99,12 @@ class SentinelSolverService:
             logger.warning({
                 "event": "sentinel_solver_rejected",
                 "error": str((data or {}).get("error") or "")[:200],
+                "lane": (data or {}).get("lane") if isinstance(data, dict) else None,
             })
             return None
+        if proxy and data.get("lane") != "proxy":
+            # 老版本 solver 不认识 proxy 字段，会用默认出口求解：记录下来便于排查 IP 不一致
+            logger.warning({"event": "sentinel_solver_lane_mismatch", "lane": data.get("lane")})
         token = str(data.get("turnstile") or "").strip()
         return token or None
 

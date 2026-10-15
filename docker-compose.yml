@@ -9,10 +9,13 @@
 # 服务说明：
 #   app              主服务（对外 3000）
 #   sentinel-solver  常驻 Chromium，执行网页 turnstile 挑战（仅内网 8788）
+#   proxy-core       可选：mihomo 内核，把订阅里的 ss / vmess / trojan 等节点转成内网 HTTP 代理端口
+#                    默认不启动；需要时 docker compose --profile proxy-core up -d
 services:
   # ------------------------------------------------------------------
   # Sentinel 求解服务：常驻 Chromium
-  # 只接收挑战参数（prepare 响应 + 令牌种子 p），不接收账号 token / Cookie / prompt
+  # 接收挑战参数（prepare 响应 + 令牌种子 p）；开启代理池时还会收到账号所用的池代理地址
+  # （可能带用户名密码），用来让求解与账号请求走同一出口 IP。不接收账号 token / Cookie / prompt
   # ------------------------------------------------------------------
   sentinel-solver:
     # 默认拉取 CI 推送的镜像；本地改了 solver 代码时用 --build 重新构建
@@ -30,13 +33,38 @@ services:
       SENTINEL_SOLVER_CHROME: /usr/bin/chromium
       SENTINEL_SOLVER_PROFILE_DIR: /tmp/solver-profile
       # 浏览器自身出网：留空直连；可填 http://host:port 或带认证的 http://user:pass@host:port，
-      # 建议与主服务的上游代理相同（同一出口 IP）
+      # 建议与主服务的上游代理相同（同一出口 IP）。只作用于不带代理的求解请求（默认通道）
       SENTINEL_SOLVER_PROXY: ${SENTINEL_SOLVER_PROXY:-}
+      # 带池代理的求解按代理分通道：每个代理一个独立浏览器上下文（约 150-250MB 内存）。
+      # 通道数上限，超出按最久未用回收；0 表示不接受带代理的请求（主服务回退内置求解器）
+      SENTINEL_SOLVER_MAX_LANES: ${SENTINEL_SOLVER_MAX_LANES:-8}
+      # 通道空闲多少秒后回收（销毁上下文、关闭本地转发）
+      SENTINEL_SOLVER_LANE_IDLE_SECS: ${SENTINEL_SOLVER_LANE_IDLE_SECS:-1800}
     expose:
       - "8788"
     # 只在本机调试时打开（默认不暴露到宿主机）
     # ports:
     #   - "127.0.0.1:8788:8788"
+
+  # ------------------------------------------------------------------
+  # 可选：mihomo（Clash.Meta）代理内核
+  # 只有导入 ss / vmess / vless / trojan / hysteria2 / tuic 等订阅节点时才需要；HTTP / SOCKS5 节点不经过它。
+  # 主服务把配置写到 ./data/mihomo/config.yaml 并通过 API 热加载，每个节点一个固定端口（默认从 20000 起），
+  # 端口只在 compose 内网可达，不映射到宿主机。
+  # 启用：在 .env 里设置 PROXY_CORE_SECRET 和 CHATGPT2API_PROXY_CORE_ENABLED=true，然后
+  #   docker compose --profile proxy-core up -d
+  # ------------------------------------------------------------------
+  proxy-core:
+    image: ${PROXY_CORE_IMAGE:-metacubex/mihomo:v1.19.20}
+    container_name: chatgpt2api-proxy-core
+    restart: unless-stopped
+    profiles: ["proxy-core"]
+    volumes:
+      - ./data/mihomo:/root/.config/mihomo
+    environment:
+      # 控制接口只在内网监听，主服务用它热加载配置
+      CLASH_OVERRIDE_EXTERNAL_CONTROLLER: 0.0.0.0:9090
+      CLASH_OVERRIDE_SECRET: ${PROXY_CORE_SECRET:-}
 
   # ------------------------------------------------------------------
   # 主服务
@@ -77,6 +105,13 @@ services:
       CHATGPT2API_PROXY_RUNTIME_EGRESS_MODE: ${CHATGPT2API_PROXY_RUNTIME_EGRESS_MODE:-single_proxy}
       CHATGPT2API_PROXY_RUNTIME_PROXY_URL: ${CHATGPT2API_PROXY_RUNTIME_PROXY_URL:-}
       CHATGPT2API_PROXY_RUNTIME_SKIP_SSL_VERIFY: ${CHATGPT2API_PROXY_RUNTIME_SKIP_SSL_VERIFY:-false}
+
+      # 可选的 mihomo 内核（代理池导入订阅里的 ss / vmess / trojan 等节点时用）
+      # 仅当 data/proxy_subscriptions.json 还不存在时写入一次，之后以后台「代理池 → 内核」设置为准
+      CHATGPT2API_PROXY_CORE_ENABLED: ${CHATGPT2API_PROXY_CORE_ENABLED:-false}
+      CHATGPT2API_PROXY_CORE_API: http://proxy-core:9090
+      CHATGPT2API_PROXY_CORE_SECRET: ${PROXY_CORE_SECRET:-}
+      CHATGPT2API_PROXY_CORE_LISTEN_HOST: proxy-core
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:80/',timeout=5)\" || exit 1"]
       interval: 30s
