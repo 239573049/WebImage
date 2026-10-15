@@ -107,6 +107,12 @@ def is_connection_timeout_error(message: str) -> bool:
     )
 
 
+def is_cloudflare_challenge_error(message: str) -> bool:
+    """检测 Cloudflare 挑战页（HTML 形式的 403）：出口 IP 被临时拦截，与账号无关。"""
+    text = str(message or "").lower()
+    return "status=403" in text and "<html" in text
+
+
 def image_stream_error_message(message: str) -> str:
     text = str(message or "")
     if is_token_invalid_error(text):
@@ -115,6 +121,8 @@ def image_stream_error_message(message: str) -> str:
         return "upstream image connection failed, please retry later"
     if is_connection_timeout_error(text):
         return "upstream connection timed out, please retry later"
+    if is_cloudflare_challenge_error(text):
+        return "upstream Cloudflare challenge (HTTP 403) on the egress IP, please retry later"
     return text or "image generation failed"
 
 
@@ -1398,11 +1406,14 @@ def _generate_single_image(
     MAX_CONN_TIMEOUT_RETRIES = 3
     # 轮询超时错误最大重试次数（换账号重试）
     MAX_POLL_TIMEOUT_RETRIES = 4
+    # Cloudflare 挑战页最大重试次数（新会话退避重试，不计入账号健康）
+    MAX_CF_CHALLENGE_RETRIES = 2
 
     text_reply_retry_count = 0
     tls_retry_count = 0
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
+    cf_challenge_retry_count = 0
     account_email = ""
 
     while True:
@@ -1619,6 +1630,25 @@ def _generate_single_image(
                 mark_account_result(False, error=last_error)
                 account_service.remove_invalid_token(token, "image_stream")
                 continue
+            # Cloudflare 挑战页：出口 IP 被临时拦截，跟账号无关。不计入账号健康（避免把账号熔断），
+            # 换一个全新会话退避后重试
+            if is_cloudflare_challenge_error(last_error):
+                mark_account_result(False, failure_kind="neutral", error=last_error)
+                if not emitted_for_token:
+                    cf_challenge_retry_count += 1
+                    if cf_challenge_retry_count <= MAX_CF_CHALLENGE_RETRIES:
+                        wait_secs = 5.0 * cf_challenge_retry_count
+                        logger.warning({
+                            "event": "image_stream_cloudflare_retry",
+                            "request_token": token,
+                            "account_email": account_email,
+                            "retry_count": cf_challenge_retry_count,
+                            "index": index,
+                            "wait_secs": wait_secs,
+                        })
+                        time.sleep(wait_secs)
+                        continue
+                raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
             lowered = last_error.lower()
             if "429" in last_error or "rate limit" in lowered or "rate_limit" in lowered or "too many requests" in lowered:
                 mark_account_result(False, failure_kind="rate_limit", error=last_error)

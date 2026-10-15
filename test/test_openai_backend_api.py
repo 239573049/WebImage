@@ -317,3 +317,190 @@ class EnsureOkTests(unittest.TestCase):
 
         self.assertEqual(b"".join(response.iter_content()), b"{}")
 
+
+CHALLENGE_HTML = b'<html>\n  <head>\n    <meta name="viewport" content="width=device-width, initial-scale=1" />'
+
+
+def _challenge_response(with_header: bool = True) -> _FakeCurlResponse:
+    headers = {"content-type": "text/html; charset=UTF-8"}
+    if with_header:
+        headers["cf-mitigated"] = "challenge"
+    return _FakeCurlResponse(403, Headers(headers), CHALLENGE_HTML)
+
+
+class _ChallengeSession(_FakeCurlSession):
+    """按顺序返回预设响应；挑战响应像 Cloudflare 一样重新下发 __cf_bm。"""
+
+    queue: list[_FakeCurlResponse] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.cookies = curl_requests.Cookies()
+        self.cookie_names_per_call: list[set[str]] = []
+
+    def get(self, url: str, **kwargs: object) -> _FakeCurlResponse:
+        self.cookie_names_per_call.append({cookie.name for cookie in self.cookies.jar})
+        response = type(self).queue.pop(0)
+        if response.status_code == 403:
+            self.cookies.set("__cf_bm", "flagged", domain=".chatgpt.com")
+        return response
+
+
+class _IdentityTestBase(unittest.TestCase):
+    def make_api(self, account: dict[str, object] | None = None, session_cls: type = _FakeCurlSession) -> OpenAIBackendAPI:
+        _FakeCurlSession.created = []
+        accounts = SimpleNamespace(get_account=lambda token: copy.deepcopy(account or {}))
+        for target, value in (
+            ("services.openai_backend_api.proxy_settings", ProxySettingsStore(_ProxyConfig())),
+            ("services.openai_backend_api.account_service", accounts),
+            ("services.openai_backend_api.requests.Session", session_cls),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return OpenAIBackendAPI("tok")
+
+
+class BrowserIdentityTests(_IdentityTestBase):
+    """请求头声明的浏览器必须就是 TLS 指纹模拟的那个浏览器，否则 Cloudflare 会间歇回挑战页。"""
+
+    def test_user_agent_and_client_hints_describe_the_tls_profile(self) -> None:
+        api = self.make_api()
+        headers = _FakeCurlSession.created[-1].headers
+
+        major = api.fp["impersonate"].removeprefix("chrome")
+        self.assertEqual(api.fp["impersonate"], "chrome146")
+        self.assertIn(f"Chrome/{major}.0.0.0 Safari/537.36", headers["User-Agent"])
+        # 与 curl_cffi chrome146 默认头逐字一致（含 GREASE 品牌及顺序）
+        self.assertEqual(headers["Sec-Ch-Ua"], f'"Chromium";v="{major}", "Not-A.Brand";v="24", "Google Chrome";v="{major}"')
+        self.assertTrue(headers["Sec-Ch-Ua-Full-Version"].startswith(f'"{major}.'))
+        self.assertIn(f'"Google Chrome";v="{major}.', headers["Sec-Ch-Ua-Full-Version-List"])
+        self.assertEqual(headers["Sec-Ch-Ua-Platform"], '"Windows"')
+        self.assertIn("Windows NT 10.0", headers["User-Agent"])
+
+    def test_identity_does_not_mix_in_edge(self) -> None:
+        self.make_api()
+        headers = _FakeCurlSession.created[-1].headers
+
+        for name in ("User-Agent", "Sec-Ch-Ua", "Sec-Ch-Ua-Full-Version-List"):
+            self.assertNotIn("Edg", headers[name], name)
+
+    def test_legacy_impersonate_profile_is_upgraded(self) -> None:
+        for legacy in ("chrome110", "edge101"):
+            with self.subTest(legacy=legacy):
+                api = self.make_api({"fp": {"impersonate": legacy}})
+                self.assertEqual(api.fp["impersonate"], "chrome146")
+                self.assertEqual(_FakeCurlSession.created[-1].kwargs["impersonate"], "chrome146")
+
+
+class CloudflareChallengeTests(_IdentityTestBase):
+    def test_challenge_detection(self) -> None:
+        json_403 = _FakeCurlResponse(403, Headers({"content-type": "application/json"}), b'{"detail":"Unusual activity"}')
+        html_404 = _FakeCurlResponse(404, Headers({"content-type": "text/html"}), b"<html></html>")
+
+        self.assertTrue(OpenAIBackendAPI._is_cloudflare_challenge(_challenge_response(with_header=True)))
+        self.assertTrue(OpenAIBackendAPI._is_cloudflare_challenge(_challenge_response(with_header=False)))
+        self.assertFalse(OpenAIBackendAPI._is_cloudflare_challenge(json_403))
+        self.assertFalse(OpenAIBackendAPI._is_cloudflare_challenge(html_404))
+        self.assertFalse(OpenAIBackendAPI._is_cloudflare_challenge(_FakeCurlResponse(200)))
+
+    def test_fetch_drops_cloudflare_cookies_and_backs_off_between_retries(self) -> None:
+        ok = _FakeCurlResponse(200, Headers({"content-type": "application/json"}), b"{}")
+        _ChallengeSession.queue = [_challenge_response(), _challenge_response(with_header=False), ok]
+        api = self.make_api(session_cls=_ChallengeSession)
+        session = _ChallengeSession.created[-1]
+        session.cookies.set("_cfuvid", "rate", domain=".chatgpt.com")
+        session.cookies.set("oai-did", "device", domain=".chatgpt.com")
+
+        with patch("services.openai_backend_api.time.sleep") as sleep:
+            response = api._fetch("get", "https://chatgpt.com/backend-api/me")
+
+        self.assertIs(response, ok)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.5, 3.0])
+        first, second, third = session.cookie_names_per_call
+        self.assertEqual(first, {"_cfuvid", "oai-did"})
+        self.assertEqual(second, {"oai-did"})      # 挑战下发的 __cf_bm 和原有 _cfuvid 都已清掉
+        self.assertEqual(third, {"oai-did"})
+
+    def test_fetch_gives_up_after_the_retry_budget(self) -> None:
+        _ChallengeSession.queue = [_challenge_response() for _ in range(4)]
+        api = self.make_api(session_cls=_ChallengeSession)
+
+        with patch("services.openai_backend_api.time.sleep") as sleep:
+            response = api._fetch("get", "https://chatgpt.com/backend-api/me")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(sleep.call_count, 3)
+        self.assertEqual(_ChallengeSession.queue, [])
+
+
+class _ImageAccounts:
+    def __init__(self) -> None:
+        self.marks: list[tuple[bool, str]] = []
+
+    def get_available_access_token(self, **kwargs: object) -> str:
+        return "tok"
+
+    def get_account(self, token: str) -> dict[str, str]:
+        return {"email": "user@example.com"}
+
+    def mark_image_result(self, token: str, success: bool, **kwargs: object) -> None:
+        self.marks.append((success, str(kwargs.get("failure_kind"))))
+
+
+class _NoopBackend:
+    def __init__(self, access_token: str = "") -> None:
+        self.progress_callback = None
+
+    def close(self) -> None:
+        return None
+
+
+class ImageCloudflareRetryTests(unittest.TestCase):
+    """生图任务遇到 Cloudflare 挑战页：不计入账号健康，换新会话退避重试，最终报错说清原因。"""
+
+    def run_task(self, failures: int) -> tuple[object, _ImageAccounts, list[float]]:
+        from services.protocol import conversation
+        from services.protocol.conversation import ConversationRequest, ImageOutput
+
+        accounts = _ImageAccounts()
+        attempts = {"count": 0}
+
+        def fake_stream(backend: object, request: object, index: int, total: int):
+            attempts["count"] += 1
+            if attempts["count"] <= failures:
+                raise UpstreamHTTPError("chat_requirements_prepare", 403, CHALLENGE_HTML.decode())
+            yield ImageOutput(kind="result", model="gpt-image-2", index=index, total=total, data=[{"b64_json": "x"}])
+
+        for target, value in (
+            ("account_service", accounts),
+            ("OpenAIBackendAPI", _NoopBackend),
+            ("stream_image_outputs", fake_stream),
+            ("_remove_image_conversation_later", lambda *args, **kwargs: None),
+        ):
+            patcher = patch.object(conversation, target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        with patch.object(conversation.time, "sleep") as sleep:
+            try:
+                result: object = conversation._generate_single_image(
+                    ConversationRequest(model="gpt-image-2", prompt="cat"), 1, 1,
+                )
+            except conversation.ImageGenerationError as exc:
+                result = exc
+        return result, accounts, [call.args[0] for call in sleep.call_args_list]
+
+    def test_transient_challenge_is_retried_without_penalizing_the_account(self) -> None:
+        result, accounts, waits = self.run_task(failures=1)
+
+        self.assertIsInstance(result, list)
+        self.assertEqual(accounts.marks, [(False, "neutral"), (True, "transient")])
+        self.assertEqual(waits, [5.0])
+
+    def test_persistent_challenge_fails_with_a_clear_message(self) -> None:
+        result, accounts, waits = self.run_task(failures=10)
+
+        self.assertIn("Cloudflare challenge", str(result))
+        self.assertEqual(accounts.marks, [(False, "neutral")] * 3)
+        self.assertEqual(waits, [5.0, 10.0])
+

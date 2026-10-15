@@ -83,13 +83,31 @@ class ChatRequirements:
 DEFAULT_CLIENT_VERSION = "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887"
 DEFAULT_CLIENT_BUILD_NUMBER = "6708908"
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
+# 请求头里的浏览器身份必须与 TLS 指纹一致：curl_cffi 的 chrome146 发的是 Chrome 146 的 ClientHello，
+# 请求头却自称 Edge 148 时会被判为可疑。实测（2026-10-15，匿名对话、同一出口）：Edge 148 身份
+# 6/6 返回 403 Unusual activity，本身份 6/6 通过；Cloudflare 也会间歇直接回 403 挑战页。
+# 品牌列表（含 GREASE 项 "Not-A.Brand" 及顺序）取自 curl_cffi chrome146 自带的默认头；
+# 完整版本号取 Chrome 146 最后一个稳定版。
+DEFAULT_IMPERSONATE = "chrome146"
+LEGACY_IMPERSONATES = {"chrome110", "edge101"}
+FINGERPRINT_FULL_VERSION = "146.0.7680.180"
+FINGERPRINT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+)
+FINGERPRINT_SEC_CH_UA = '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"'
+FINGERPRINT_SEC_CH_UA_FULL_VERSION_LIST = (
+    f'"Chromium";v="{FINGERPRINT_FULL_VERSION}", "Not-A.Brand";v="24.0.0.0", '
+    f'"Google Chrome";v="{FINGERPRINT_FULL_VERSION}"'
+)
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_RESPONSES_MODEL = "gpt-5.5"
 CODEX_RESPONSES_TIMEOUT_SECS = 1200
-# Cloudflare 挑战页（cf-mitigated: challenge）的重试次数与间隔：挑战响应会下发 clearance，
-# 重试即可拿到真实内容；出口 IP 风险偏高时单次不够，需要多试几次。
+# Cloudflare 挑战页（cf-mitigated: challenge 或 HTML 403）的重试：挑战是按请求打分的，
+# 住宅 IP 也会间歇命中；第 n 次重试前等待 n 倍间隔，并清掉 Cloudflare Cookie 重新评估。
 _CLOUDFLARE_CHALLENGE_RETRIES = 3
-_CLOUDFLARE_CHALLENGE_WAIT_SECS = 1.0
+_CLOUDFLARE_CHALLENGE_WAIT_SECS = 1.5
+_CLOUDFLARE_COOKIE_PREFIXES = ("__cf", "_cf", "cf_")
 CODEX_URLLIB_USER_AGENT = f"Python-urllib/{sys.version_info.major}.{sys.version_info.minor}"
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
@@ -222,8 +240,8 @@ class OpenAIBackendAPI:
             "Sec-Ch-Ua": self.fp["sec-ch-ua"],
             "Sec-Ch-Ua-Arch": '"x86"',
             "Sec-Ch-Ua-Bitness": '"64"',
-            "Sec-Ch-Ua-Full-Version": '"148.0.0.0"',
-            "Sec-Ch-Ua-Full-Version-List": '"Microsoft Edge";v="148.0.0.0", "Chromium";v="148.0.0.0", "Not A(Brand";v="24.0.0.0"',
+            "Sec-Ch-Ua-Full-Version": f'"{FINGERPRINT_FULL_VERSION}"',
+            "Sec-Ch-Ua-Full-Version-List": FINGERPRINT_SEC_CH_UA_FULL_VERSION_LIST,
             "Sec-Ch-Ua-Mobile": self.fp["sec-ch-ua-mobile"],
             "Sec-Ch-Ua-Model": '""',
             "Sec-Ch-Ua-Platform": self.fp["sec-ch-ua-platform"],
@@ -277,15 +295,14 @@ class OpenAIBackendAPI:
             value = str(account.get(key) or "").strip()
             if value:
                 fp[key] = value
-        fp.setdefault(
-            "user-agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
-        )
-        fp.setdefault("impersonate", "chrome146")
+        # 旧 TLS 指纹（chrome110 / edge101）与当前 UA 对不上，统一换成默认指纹
+        if fp.get("impersonate") in LEGACY_IMPERSONATES:
+            fp.pop("impersonate")
+        fp.setdefault("user-agent", FINGERPRINT_UA)
+        fp.setdefault("impersonate", DEFAULT_IMPERSONATE)
         fp.setdefault("oai-device-id", new_uuid())
         fp.setdefault("oai-session-id", new_uuid())
-        fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="148", "Chromium";v="148", "Not A(Brand";v="24"')
+        fp.setdefault("sec-ch-ua", FINGERPRINT_SEC_CH_UA)
         fp.setdefault("sec-ch-ua-mobile", "?0")
         fp.setdefault("sec-ch-ua-platform", '"Windows"')
         return fp
@@ -2741,17 +2758,37 @@ class OpenAIBackendAPI:
 
     @staticmethod
     def _is_cloudflare_challenge(response: Any) -> bool:
-        """Cloudflare 挑战页：状态码 >= 400 且带 cf-mitigated: challenge。"""
-        if getattr(response, "status_code", 0) < 400:
+        """Cloudflare 挑战页：带 cf-mitigated: challenge，或是 HTML 形式的 403。
+
+        JSON 形式的 403（如 Unusual activity）是上游业务拒绝，不算挑战页。
+        """
+        status_code = getattr(response, "status_code", 0)
+        if status_code < 400:
             return False
         headers = getattr(response, "headers", None)
-        value = str(headers.get("cf-mitigated") or "") if headers is not None else ""
-        return value.strip().lower() == "challenge"
+        if headers is None:
+            return False
+        if str(headers.get("cf-mitigated") or "").strip().lower() == "challenge":
+            return True
+        return status_code == 403 and "text/html" in str(headers.get("content-type") or "").lower()
+
+    def _drop_cloudflare_cookies(self) -> None:
+        """清掉会话里 Cloudflare 下发的 Cookie（__cf_bm / _cfuvid / cf_clearance 等）。
+
+        被挑战后这组 Cookie 会把当前会话标成可疑，带着它立即重试大多仍是挑战页；
+        清掉后上游按新访客重新评估。
+        """
+        try:
+            jar = self.session.cookies.jar
+            for cookie in list(jar):
+                if cookie.name.startswith(_CLOUDFLARE_COOKIE_PREFIXES):
+                    jar.clear(cookie.domain, cookie.path, cookie.name)
+        except Exception:
+            pass
 
     def _fetch(self, method: str, url: str, **kwargs: Any) -> Any:
-        """发请求；若被 Cloudflare 挑战则原样重试一次。
+        """发请求；被 Cloudflare 挑战时清掉 Cloudflare Cookie、逐次加长等待后重试。
 
-        挑战响应的 Set-Cookie 会带上 clearance，重试即可拿到真实内容；
         不重试的话后面 `/backend-api/f/conversation` 会返回 403 Unusual activity。
         """
         request = getattr(self.session, method)
@@ -2763,13 +2800,16 @@ class OpenAIBackendAPI:
                 response.close()
             except Exception:
                 pass
+            wait_secs = _CLOUDFLARE_CHALLENGE_WAIT_SECS * (attempt + 1)
             logger.warning({
                 "event": "cloudflare_challenge_retry",
                 "method": method,
                 "url": url,
                 "attempt": attempt + 1,
+                "wait_secs": wait_secs,
             })
-            time.sleep(_CLOUDFLARE_CHALLENGE_WAIT_SECS)
+            self._drop_cloudflare_cookies()
+            time.sleep(wait_secs)
             response = request(url, **kwargs)
         return response
 
