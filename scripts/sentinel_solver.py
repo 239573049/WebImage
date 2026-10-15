@@ -225,6 +225,9 @@ class CdpPage:
 # 求解逻辑
 # ---------------------------------------------------------------------------
 
+# turnstile 资源名带构建 hash，会随上游部署变化；优先运行时发现，这里只是最后的兜底
+FALLBACK_TURNSTILE_URL = "/unauth-mweb/assets/turnstile-DykPLDEM.js"
+
 DEFAULT_CHROME_CANDIDATES = [
     os.path.expanduser("~/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/"
                        "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
@@ -305,20 +308,69 @@ class BrowserPool:
         return page
 
     def solve(self, requirements: dict, p_token: str) -> tuple[bool, str]:
+        # 资源名带构建 hash（如 turnstile-DykPLDEM.js），随上游部署变化，不能写死。
+        # 浏览器里分层发现：已加载资源 -> 页面脚本 -> 抓 sentinel 模块源码解析 import 说明符。
         script = """
         (async () => {
-          const reqs = %s, key = %s;
+          const reqs = %s, key = %s, FALLBACK = %s;
+          const tried = [];
+          const ASSET = (n) => '/unauth-mweb/assets/' + n;
+
+          async function fromModules() {
+            const names = new Set();
+            try {
+              const res = await fetch('/', { credentials: 'include' });
+              const html = await res.text();
+              for (const m of html.matchAll(/([A-Za-z0-9._-]+\\.js)/g)) names.add(m[1]);
+            } catch (error) { /* ignore */ }
+            for (const el of Array.from(document.scripts || [])) {
+              if (el && el.src) {
+                const last = el.src.split('/').pop();
+                if (last && last.endsWith('.js')) names.add(last);
+              }
+            }
+            let budget = 8;
+            for (const name of Array.from(names)) {
+              if (budget-- <= 0) break;
+              try {
+                const text = await (await fetch(ASSET(name), { credentials: 'include' })).text();
+                const m = new RegExp('(turnstile-[A-Za-z0-9_-]+\\.js)').exec(text);
+                if (m) return ASSET(m[1]);
+              } catch (error) { /* ignore */ }
+            }
+            return null;
+          }
+
+          const candidates = [];
+          if (window.__turnstileUrl) candidates.push(window.__turnstileUrl);
           try {
-            const { turnstile } = await import('/unauth-mweb/assets/turnstile-DykPLDEM.js');
-            const original = WeakMap.prototype.get;
-            WeakMap.prototype.get = function (target) {
-              return target === reqs ? key : original.call(this, target);
-            };
-            try { return String(await turnstile.getEnforcementToken(reqs)); }
-            finally { WeakMap.prototype.get = original; }
-          } catch (error) { return 'ERR:' + String(error).slice(0, 300); }
+            for (const entry of performance.getEntriesByType('resource')) {
+              const m = new RegExp('/assets/(turnstile-[A-Za-z0-9_-]+\\.js)').exec(entry.name);
+              if (m) candidates.push(ASSET(m[1]));
+            }
+          } catch (error) { /* ignore */ }
+          const discovered = await fromModules();
+          if (discovered) candidates.push(discovered);
+          candidates.push(FALLBACK);
+
+          for (const url of Array.from(new Set(candidates))) {
+            tried.push(url);
+            try {
+              const mod = await import(url);
+              if (!mod || typeof mod.turnstile !== 'object') continue;
+              window.__turnstileUrl = url;
+              const original = WeakMap.prototype.get;
+              WeakMap.prototype.get = function (target) {
+                return target === reqs ? key : original.call(this, target);
+              };
+              try { return String(await mod.turnstile.getEnforcementToken(reqs)); }
+              finally { WeakMap.prototype.get = original; }
+            } catch (error) { /* try next */ }
+          }
+          return 'ERR:cannot load turnstile module; tried=' + JSON.stringify(tried) +
+                 '; page=' + location.href;
         })()
-        """ % (json.dumps(requirements), json.dumps(p_token))
+        """ % (json.dumps(requirements), json.dumps(p_token), json.dumps(FALLBACK_TURNSTILE_URL))
         with self._lock:
             page = self.page()
             token = str(page.evaluate(script, timeout=180) or "")
@@ -426,6 +478,7 @@ def make_handler(pool: BrowserPool, key: str):
                 return self._send(500, {"ok": False, "error": str(exc)[:200]})
             LOG.info("求解%s，耗时 %.1fs，token 长度 %d", "成功" if ok else "失败", time.time() - started, len(token))
             if not ok:
+                LOG.warning("求解失败原因: %s", str(token)[:400])
                 return self._send(200, {"ok": False, "error": token[:300]})
             return self._send(200, {"ok": True, "turnstile": token})
 
