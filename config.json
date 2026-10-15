@@ -37,7 +37,7 @@
   "base_url": "",
   "sensitive_words": [],
   "global_system_prompt": "",
-  "default_upstream_model_name": "gpt-6",
+  "default_upstream_model_name": "auto",
   "default_thinking_effort": "auto",
   "ai_review": {
     "enabled": false,
@@ -128,5 +128,11 @@
       "url": "https://canvas.best"
     }
   },
-  "image_remove_conversation_after_result": true
+  "image_remove_conversation_after_result": true,
+  "sentinel_solver": {
+    "enabled": false,
+    "url": "",
+    "key": "",
+    "timeout_seconds": 180
+  }
 }

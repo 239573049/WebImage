@@ -7,9 +7,9 @@ import webConfig from "@/constants/common-env";
 import { parseChangelog, type ReleaseInfo } from "@/lib/release";
 
 const latestVersionUrl =
-  "https://raw.githubusercontent.com/basketikun/chatgpt2api/main/VERSION";
+  "https://raw.githubusercontent.com/239573049/WebImage/main/VERSION";
 const latestChangelogUrl =
-  "https://raw.githubusercontent.com/basketikun/chatgpt2api/main/CHANGELOG.md";
+  "https://raw.githubusercontent.com/239573049/WebImage/main/CHANGELOG.md";
 
 function readLocalReleases(): ReleaseInfo[] {
   return JSON.parse(process.env.NEXT_PUBLIC_APP_RELEASES || "[]");

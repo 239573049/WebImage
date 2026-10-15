@@ -242,6 +242,26 @@ def _normalize_means_settings(value: object) -> dict[str, object]:
     }
 
 
+DEFAULT_SENTINEL_SOLVER = {
+    "enabled": False,
+    "url": "",
+    "key": "",
+    "timeout_seconds": 180,
+}
+
+
+def _normalize_sentinel_solver_settings(value: object) -> dict[str, object]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "enabled": _normalize_bool(source.get("enabled"), bool(DEFAULT_SENTINEL_SOLVER["enabled"])),
+        "url": str(source.get("url") or "").strip().rstrip("/"),
+        "key": str(source.get("key") or "").strip(),
+        "timeout_seconds": _normalize_positive_int(
+            source.get("timeout_seconds"), int(DEFAULT_SENTINEL_SOLVER["timeout_seconds"]), 1,
+        ),
+    }
+
+
 def _normalize_chat_completion_cache_settings(value: object) -> dict[str, object]:
     source = value if isinstance(value, dict) else {}
     return {
@@ -862,6 +882,9 @@ class ConfigStore:
 
     def get_means_settings(self) -> dict[str, object]:
         return _normalize_means_settings(self.data.get("means"))
+
+    def get_sentinel_solver_settings(self) -> dict[str, object]:
+        return _normalize_sentinel_solver_settings(self.data.get("sentinel_solver"))
 
     def get_chat_completion_cache_settings(self) -> dict[str, object]:
         return _normalize_chat_completion_cache_settings(self.data.get("chat_completion_cache"))

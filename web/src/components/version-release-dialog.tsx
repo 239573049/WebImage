@@ -96,7 +96,7 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
             ))}
           </div>
           <Button variant="outline" size="sm" asChild>
-            <a href="https://github.com/basketikun/chatgpt2api" target="_blank" rel="noreferrer">
+            <a href="https://github.com/239573049/WebImage" target="_blank" rel="noreferrer">
               前往 GitHub 更新
             </a>
           </Button>

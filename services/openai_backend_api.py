@@ -30,6 +30,7 @@ from services.proxy_service import proxy_settings
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
+from services.sentinel_solver_service import sentinel_solver_service
 from utils.turnstile import solve_turnstile_token
 
 
@@ -427,10 +428,7 @@ class OpenAIBackendAPI:
                 data_build=self.pow_data_build,
             )
 
-        turnstile_token = ""
-        turnstile_info = data.get("turnstile") or {}
-        if turnstile_info.get("required") and turnstile_info.get("dx"):
-            turnstile_token = solve_turnstile_token(turnstile_info["dx"], source_p) or ""
+        turnstile_token = self._solve_turnstile(data, source_p)
 
         return ChatRequirements(
             token=data.get("token", ""),
@@ -2783,6 +2781,25 @@ class OpenAIBackendAPI:
         with _BOOTSTRAP_CACHE_LOCK:
             _BOOTSTRAP_CACHE[egress] = (time.time(), list(self.pow_script_sources), self.pow_data_build)
 
+
+    def _solve_turnstile(self, requirements_payload: Dict[str, Any], source_p: str) -> str:
+        """取 turnstile token：优先外部 sentinel solver（真实 Chromium 环境），否则回退内置实现。
+
+        纯 Python 的 VM 复刻跟不上当前随机化 opcode 的版本，因此默认建议接入 solver；
+        未配置 solver 时行为与之前一致。
+        """
+        turnstile_info = requirements_payload.get("turnstile") or {}
+        if not (turnstile_info.get("required") and turnstile_info.get("dx")):
+            return ""
+        try:
+            token = sentinel_solver_service.solve_turnstile(requirements_payload, source_p)
+        except Exception as exc:
+            logger.warning({"event": "sentinel_solver_exception", "error": str(exc)[:200]})
+            token = None
+        if token:
+            return token
+        return solve_turnstile_token(turnstile_info["dx"], source_p) or ""
+
     def _get_chat_requirements(self) -> ChatRequirements:
         """获取当前模式对话所需的 sentinel token（prepare + finalize 两步流程）。"""
         base = "/backend-api/sentinel/chat-requirements" if self.access_token else "/backend-anon/sentinel/chat-requirements"
@@ -2809,10 +2826,7 @@ class OpenAIBackendAPI:
                 data_build=self.pow_data_build,
             )
 
-        turnstile_token = ""
-        turnstile_info = prepare_data.get("turnstile") or {}
-        if turnstile_info.get("required") and turnstile_info.get("dx"):
-            turnstile_token = solve_turnstile_token(turnstile_info["dx"], p_token) or ""
+        turnstile_token = self._solve_turnstile(prepare_data, p_token)
 
         finalize_path = base + "/finalize"
         response = self._fetch("post", self.base_url + finalize_path,

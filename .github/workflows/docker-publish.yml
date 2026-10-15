@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: chatgpt2api
+  IMAGE_NAME: webimage
 
 jobs:
   docker:

@@ -9,7 +9,7 @@ export function HeaderActions({ className, showGithubText = true }: { className?
     <div className={cn("flex items-center gap-1.5", className)}>
       <ThemeToggle />
       <a
-        href="https://github.com/basketikun/chatgpt2api"
+        href="https://github.com/239573049/WebImage"
         target="_blank"
         rel="noreferrer"
         className={cn(

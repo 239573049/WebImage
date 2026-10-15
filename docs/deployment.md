@@ -33,7 +33,7 @@ git --version
 适合不需要 WARP / FlareSolverr 清障的场景。
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+git clone https://github.com/239573049/WebImage.git
 cd chatgpt2api
 ```
 
@@ -136,7 +136,7 @@ docker compose -f docker-compose.warp.yml down
 后端：
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+git clone https://github.com/239573049/WebImage.git
 cd chatgpt2api
 uv sync
 uv run main.py

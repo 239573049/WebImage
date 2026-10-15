@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/basketikun/chatgpt2api:latest
+    image: ghcr.io/239573049/webimage:latest
     container_name: chatgpt2api
     restart: unless-stopped
     build:
