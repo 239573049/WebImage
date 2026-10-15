@@ -7,8 +7,10 @@ import { toast } from "sonner";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ImageThumbnail, getImageThumbnailUrl } from "@/components/image-thumbnail";
+import { AnimatedBadge } from "@/components/motion/animated-badge";
 import { PageEnter } from "@/components/page-enter";
 import { PageHeader } from "@/components/page-header";
+import { PageLoader } from "@/components/page-loader";
 import { RpmPanel } from "@/components/rpm-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,9 +153,11 @@ function LogsContent() {
   }, [type, startDate, endDate, pageSize]);
 
   return (
-    <PageEnter className="space-y-4">
+    <PageEnter className="space-y-6">
       <PageHeader
+        eyebrow="Observability"
         title="日志管理"
+        description="实时调用指标每 10 秒刷新；下方可按类型和日期查询调用日志与账号操作日志。"
         actions={
           <>
             <Select value={type} onValueChange={setType}>
@@ -241,9 +245,9 @@ function LogsContent() {
                         {isCallLog ? <TableCell className="tabular-nums">{formatDuration(item)}</TableCell> : null}
                         {isCallLog ? (
                           <TableCell>
-                            <Badge variant={item.detail?.status === "failed" ? "danger" : "success"}>
+                            <AnimatedBadge status={item.detail?.status === "failed" ? "danger" : "success"} size="sm">
                               {getStatus(item)}
-                            </Badge>
+                            </AnimatedBadge>
                           </TableCell>
                         ) : null}
                         {isCallLog ? (
@@ -420,7 +424,7 @@ function LogsContent() {
 export default function LogsPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
   if (isCheckingAuth || !session || session.role !== "admin") {
-    return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-muted-foreground" /></div>;
+    return <PageLoader />;
   }
   return <LogsContent />;
 }

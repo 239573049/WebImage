@@ -4,9 +4,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang SC",
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -28,6 +28,7 @@
   --color-info: var(--info);
   --color-violet: var(--violet);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-field: var(--field);
@@ -36,122 +37,123 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-chart-grid: var(--chart-grid);
 
-  /* 圆角整体比默认刻度大一档：Apple 的"连续圆角"观感 */
-  --radius-sm: 0.5rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 0.875rem;
-  --radius-2xl: 1.25rem;
-  --radius-3xl: 1.75rem;
-  --radius-4xl: 2.25rem;
+  /* 控制台风格：比 Apple 风格收一档，卡片 16px、外壳 20px */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.25rem;
+  --radius-4xl: 1.5rem;
 }
 
 /* ------------------------------------------------------------------ */
-/* 浅色：macOS Sonoma 风格 —— 柔和的彩色光晕 + 白色半透明面板           */
+/* 浅色：冷灰底 + 纯白卡片 + 发丝描边                                    */
 /* ------------------------------------------------------------------ */
 :root {
   color-scheme: light;
 
-  --background: #f3f4f8;
-  --foreground: #1d1d1f;
-  --card: rgb(255 255 255 / 0.72);
-  --card-foreground: #1d1d1f;
-  --popover: rgb(255 255 255 / 0.98);
-  --popover-foreground: #1d1d1f;
-  --primary: #007aff;
+  --background: #f4f6fa;
+  --foreground: #0f1729;
+  --card: #ffffff;
+  --card-foreground: #0f1729;
+  --popover: #ffffff;
+  --popover-foreground: #0f1729;
+  --primary: #1e6ef4;
   --primary-foreground: #ffffff;
-  --secondary: rgb(120 120 128 / 0.14);
-  --secondary-foreground: #1d1d1f;
-  --muted: rgb(120 120 128 / 0.09);
-  --muted-foreground: rgb(60 60 67 / 0.62);
-  --accent: rgb(0 0 0 / 0.05);
-  --accent-foreground: #1d1d1f;
-  --destructive: #e5352b;
-  --success: #1f9d4a;
-  --warning: #c76a00;
-  --info: #0a84c6;
-  --violet: #8a3fd1;
-  --border: rgb(60 60 67 / 0.13);
-  --input: rgb(60 60 67 / 0.2);
-  --ring: rgb(0 122 255 / 0.5);
-  --field: rgb(255 255 255 / 0.7);
-  --field-hover: rgb(255 255 255 / 0.95);
+  --secondary: rgb(15 23 41 / 0.055);
+  --secondary-foreground: #0f1729;
+  --muted: rgb(15 23 41 / 0.035);
+  --muted-foreground: #667085;
+  --accent: rgb(15 23 41 / 0.045);
+  --accent-foreground: #0f1729;
+  --destructive: #e5484d;
+  --success: #16a34a;
+  --warning: #d97706;
+  --info: #0284c7;
+  --violet: #7c3aed;
+  --border: rgb(15 23 41 / 0.085);
+  --border-strong: rgb(15 23 41 / 0.16);
+  --input: rgb(15 23 41 / 0.13);
+  --ring: rgb(30 110 244 / 0.45);
+  --field: #ffffff;
+  --field-hover: #f8fafc;
   --segment: #ffffff;
+  --chart-grid: rgb(15 23 41 / 0.07);
 
-  --sidebar: rgb(255 255 255 / 0.74);
-  --sidebar-foreground: #1d1d1f;
-  --sidebar-border: rgb(60 60 67 / 0.12);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f1729;
+  --sidebar-border: rgb(15 23 41 / 0.08);
 
-  --glass-bg: linear-gradient(180deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.68));
-  --glass-bg-strong: linear-gradient(180deg, rgb(255 255 255 / 0.97), rgb(255 255 255 / 0.88));
-  --glass-border: rgb(60 60 67 / 0.1);
-  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), 0 1px 2px rgb(16 24 40 / 0.05),
-    0 14px 32px -18px rgb(16 24 40 / 0.18);
-  --chrome-bg: linear-gradient(180deg, rgb(255 255 255 / 0.8), rgb(246 247 252 / 0.66));
-  --scrollbar-thumb: rgb(60 60 67 / 0.28);
+  --surface-shadow: 0 1px 2px rgb(15 23 41 / 0.04);
+  --raised-bg: #ffffff;
+  --raised-shadow: 0 1px 2px rgb(15 23 41 / 0.04), 0 24px 56px -32px rgb(15 23 41 / 0.28);
+  --chrome-bg: rgb(255 255 255 / 0.86);
+  --chrome-shadow: 0 1px 2px rgb(15 23 41 / 0.04), 0 12px 32px -24px rgb(15 23 41 / 0.2);
+  --overlay-shadow: 0 24px 64px -24px rgb(15 23 41 / 0.32);
+  --scrollbar-thumb: rgb(15 23 41 / 0.18);
 
   --page-bg:
-    radial-gradient(1000px 680px at -6% -10%, rgb(0 122 255 / 0.17), transparent 62%),
-    radial-gradient(860px 720px at 108% 108%, rgb(255 149 0 / 0.13), transparent 60%),
-    radial-gradient(800px 560px at 108% -8%, rgb(175 82 222 / 0.11), transparent 60%), #f3f4f8;
+    radial-gradient(1100px 620px at 0% -10%, rgb(30 110 244 / 0.07), transparent 62%),
+    radial-gradient(900px 520px at 100% 0%, rgb(124 58 237 / 0.035), transparent 60%), #f4f6fa;
 }
 
 /* ------------------------------------------------------------------ */
-/* 深色：visionOS / macOS 深色 —— 蓝紫光晕 + 低对比半透明玻璃            */
+/* 深色：深海军蓝底 + 低一档的卡片面 + 发丝描边，只有数据和主色是亮的     */
 /* ------------------------------------------------------------------ */
 .dark {
   color-scheme: dark;
 
-  --background: #0a0b10;
-  --foreground: rgb(255 255 255 / 0.94);
-  --card: rgb(255 255 255 / 0.06);
-  --card-foreground: rgb(255 255 255 / 0.94);
-  --popover: rgb(30 31 38 / 0.98);
-  --popover-foreground: rgb(255 255 255 / 0.94);
-  --primary: #0a84ff;
+  --background: #0a0f17;
+  --foreground: #e7ebf3;
+  --card: #101724;
+  --card-foreground: #e7ebf3;
+  --popover: #131b29;
+  --popover-foreground: #e7ebf3;
+  --primary: #2e7dff;
   --primary-foreground: #ffffff;
-  --secondary: rgb(120 120 128 / 0.26);
-  --secondary-foreground: rgb(255 255 255 / 0.92);
-  --muted: rgb(120 120 128 / 0.16);
-  --muted-foreground: rgb(235 235 245 / 0.6);
-  --accent: rgb(255 255 255 / 0.08);
-  --accent-foreground: rgb(255 255 255 / 0.96);
-  --destructive: #ff453a;
-  --success: #32d74b;
-  --warning: #ff9f0a;
-  --info: #64d2ff;
-  --violet: #bf5af2;
-  --border: rgb(255 255 255 / 0.09);
-  --input: rgb(255 255 255 / 0.13);
-  --ring: rgb(10 132 255 / 0.62);
-  --field: rgb(255 255 255 / 0.06);
-  --field-hover: rgb(255 255 255 / 0.1);
-  --segment: rgb(255 255 255 / 0.14);
+  --secondary: rgb(255 255 255 / 0.065);
+  --secondary-foreground: #e7ebf3;
+  --muted: rgb(255 255 255 / 0.04);
+  --muted-foreground: #8b95a8;
+  --accent: rgb(255 255 255 / 0.055);
+  --accent-foreground: #f2f5fa;
+  --destructive: #f25d5d;
+  --success: #34d27b;
+  --warning: #f5a524;
+  --info: #38bdf8;
+  --violet: #a78bfa;
+  --border: rgb(255 255 255 / 0.075);
+  --border-strong: rgb(255 255 255 / 0.14);
+  --input: rgb(255 255 255 / 0.11);
+  --ring: rgb(46 125 255 / 0.6);
+  --field: rgb(255 255 255 / 0.03);
+  --field-hover: rgb(255 255 255 / 0.055);
+  --segment: rgb(255 255 255 / 0.09);
+  --chart-grid: rgb(255 255 255 / 0.06);
 
-  --sidebar: rgb(255 255 255 / 0.06);
-  --sidebar-foreground: rgb(255 255 255 / 0.94);
-  --sidebar-border: rgb(255 255 255 / 0.1);
+  --sidebar: #0e1521;
+  --sidebar-foreground: #e7ebf3;
+  --sidebar-border: rgb(255 255 255 / 0.08);
 
-  --glass-bg: linear-gradient(180deg, rgb(255 255 255 / 0.085), rgb(255 255 255 / 0.045));
-  --glass-bg-strong: linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.085));
-  --glass-border: rgb(255 255 255 / 0.1);
-  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.32);
-  --chrome-bg: linear-gradient(180deg, rgb(22 52 108 / 0.55), rgb(70 34 98 / 0.5));
-  --scrollbar-thumb: rgb(255 255 255 / 0.24);
+  --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.02);
+  --raised-bg: #121a28;
+  --raised-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 24px 60px -28px rgb(0 0 0 / 0.7);
+  --chrome-bg: rgb(15 22 34 / 0.82);
+  --chrome-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 12px 32px -20px rgb(0 0 0 / 0.6);
+  --overlay-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.75);
+  --scrollbar-thumb: rgb(255 255 255 / 0.16);
 
   --page-bg:
-    radial-gradient(1200px 760px at -8% -12%, rgb(10 132 255 / 0.4), transparent 62%),
-    radial-gradient(960px 800px at -10% 108%, rgb(191 90 242 / 0.34), transparent 60%),
-    radial-gradient(760px 520px at 108% -8%, rgb(94 92 230 / 0.16), transparent 60%), #0a0b10;
+    radial-gradient(1200px 640px at 0% -12%, rgb(46 125 255 / 0.11), transparent 62%),
+    radial-gradient(900px 600px at 100% 110%, rgb(46 125 255 / 0.05), transparent 60%), #0a0f17;
 }
 
 :root {
-  --sidebar-w: 14.5rem;
-}
-
-[data-sidebar="collapsed"] {
-  --sidebar-w: 4.5rem;
+  /* beUI 组件共用的缓动 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @layer base {
@@ -174,13 +176,13 @@
   body {
     font-family: var(--font-sans);
     color: var(--foreground);
-    letter-spacing: -0.006em;
+    font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   ::selection {
-    background: rgb(10 132 255 / 0.32);
+    background: rgb(46 125 255 / 0.3);
   }
 
   button,
@@ -196,36 +198,58 @@
 }
 
 @layer components {
-  /* 内容卡片：半透明渐变 + 1px 高光描边。不使用 backdrop-filter —— 背景是静态渐变，模糊与否肉眼无差别，
-     却会让每一次滚动/重绘都多一道 GPU 模糊。 */
-  .glass {
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+  /* 内容卡片：实色面 + 1px 发丝描边，几乎不用阴影 */
+  .surface {
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: var(--surface-shadow);
   }
 
-  .glass-strong {
-    background: var(--glass-bg-strong);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+  /* 需要从页面里"浮"出来的面板（登录卡片、输入区） */
+  .surface-raised {
+    background: var(--raised-bg);
+    border: 1px solid var(--border);
+    box-shadow: var(--raised-shadow);
   }
 
-  /* 悬浮外壳（侧栏、移动端顶栏）：面积小且位置固定，才值得上实时模糊 */
-  .glass-chrome {
+  /* 悬浮外壳（侧栏、顶栏）：面积小且位置固定，才值得上实时模糊 */
+  .surface-chrome {
     background: var(--chrome-bg);
     border: 1px solid var(--sidebar-border);
-    box-shadow: var(--glass-shadow);
-    -webkit-backdrop-filter: blur(28px) saturate(1.6);
-    backdrop-filter: blur(28px) saturate(1.6);
+    box-shadow: var(--chrome-shadow);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    backdrop-filter: blur(20px) saturate(1.4);
   }
 
   @media (prefers-reduced-transparency: reduce) {
-    .glass-chrome {
+    .surface-chrome {
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
-      background: var(--popover);
+      background: var(--sidebar);
     }
   }
+}
+
+/* 小号全大写的分区标签（WORKSPACE OVERVIEW / CONSOLE） */
+@utility eyebrow {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* beUI 的按压反馈 */
+@utility press {
+  transition: transform 0.12s var(--ease-out);
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+@utility shadow-overlay {
+  box-shadow: var(--overlay-shadow);
 }
 
 @layer utilities {

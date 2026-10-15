@@ -142,7 +142,7 @@ ${skillEn}
   return (
     <section className="grid items-stretch gap-4 lg:grid-cols-2">
       {versions.map((item) => (
-        <div key={item.title} className="glass flex flex-col overflow-hidden rounded-[22px]">
+        <div key={item.title} className="surface flex flex-col overflow-hidden rounded-2xl">
           <div className="flex items-start justify-between gap-3 border-b border-border p-5">
             <div className="flex min-w-0 gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">

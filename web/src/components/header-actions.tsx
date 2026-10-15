@@ -1,29 +1,30 @@
 "use client";
 
+import { Tooltip } from "@/components/motion/tooltip";
+import { GITHUB_URL } from "@/components/shell/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { VersionReleaseDialog } from "@/components/version-release-dialog";
 import { cn } from "@/lib/utils";
 
-export function HeaderActions({ className, showGithubText = true }: { className?: string; showGithubText?: boolean }) {
+const iconButtonClass =
+  "inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4";
+
+/** 主题 / GitHub / 版本的胶囊按钮组（登录页右上角；登录后由顶栏承担） */
+export function HeaderActions({ className }: { className?: string }) {
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
-      <ThemeToggle />
-      <a
-        href="https://github.com/239573049/WebImage"
-        target="_blank"
-        rel="noreferrer"
-        className={cn(
-          "inline-flex h-9 items-center justify-center gap-1.5 rounded-xl text-sm text-foreground/70 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/40",
-          showGithubText ? "px-2.5" : "w-9",
-        )}
-        aria-label="GitHub repository"
-        title="GitHub"
-      >
-        {/* github.svg 是黑色图标，深色主题下反相成白色 */}
-        <img src="/github.svg" alt="" className="size-4 dark:invert" />
-        {showGithubText ? <span className="hidden sm:inline">GitHub</span> : null}
-      </a>
-      <VersionReleaseDialog />
+    <div className={cn("surface-chrome flex items-center gap-0.5 rounded-full p-0.5", className)}>
+      <Tooltip content="切换主题" side="bottom">
+        <span className="inline-flex">
+          <ThemeToggle className={iconButtonClass} />
+        </span>
+      </Tooltip>
+      <Tooltip content="GitHub 仓库" side="bottom">
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer" aria-label="GitHub 仓库" className={iconButtonClass}>
+          {/* github.svg 是黑色图标，深色主题下反相成白色 */}
+          <img src="/github.svg" alt="" className="size-4 opacity-70 dark:invert" />
+        </a>
+      </Tooltip>
+      <VersionReleaseDialog className="h-8 rounded-full px-2.5 text-[11px]" />
     </div>
   );
 }

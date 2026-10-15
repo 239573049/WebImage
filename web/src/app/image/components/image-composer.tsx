@@ -258,7 +258,7 @@ export const ImageComposer = memo(function ImageComposer({
 
         <div
           className={cn(
-            "glass-strong overflow-hidden rounded-[28px] transition-colors sm:rounded-[32px]",
+            "surface-raised overflow-hidden rounded-[22px] transition-colors focus-within:border-primary/40",
             isDraggingImage && "border-primary",
           )}
         >
@@ -295,10 +295,10 @@ export const ImageComposer = memo(function ImageComposer({
                   void onSubmit();
                 }
               }}
-              className="min-h-[82px] resize-none rounded-[24px] border-0 bg-transparent px-4 pt-4 pb-2 text-[15px] leading-6 text-foreground shadow-none placeholder:text-muted-foreground/70 hover:bg-transparent focus-visible:ring-0 sm:min-h-[148px] sm:rounded-[32px] sm:px-6 sm:pt-6 sm:pb-20 sm:leading-7"
+              className="min-h-[82px] resize-none rounded-[22px] border-0 bg-transparent px-4 pt-4 pb-2 text-[15px] leading-6 text-foreground shadow-none placeholder:text-muted-foreground/70 hover:bg-transparent focus-visible:ring-0 sm:min-h-[148px] sm:px-6 sm:pt-6 sm:pb-20 sm:leading-7"
             />
             {isDraggingImage ? (
-              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[28px] border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary sm:rounded-[32px]">
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary">
                 <div className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-white">
                   <ImagePlus className="size-4" />
                   <span>松开以上传参考图</span>
@@ -349,7 +349,7 @@ export const ImageComposer = memo(function ImageComposer({
                     {isSizeMenuOpen ? (
                       <div
                         ref={sizeMenuRef}
-                        className="fixed z-[80] max-h-[calc(100dvh-6.5rem)] overflow-y-auto rounded-3xl border border-border bg-popover p-4 shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]"
+                        className="fixed z-[80] max-h-[calc(100dvh-6.5rem)] overflow-y-auto rounded-2xl border border-border bg-popover p-4 shadow-overlay"
                         style={{
                           top: sizeMenuPos.top,
                           left: sizeMenuPos.left,

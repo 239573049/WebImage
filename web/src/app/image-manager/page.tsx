@@ -5,9 +5,10 @@ import { Archive, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Erase
 import { toast } from "sonner";
 
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { ImageLightbox } from "@/components/image-lightbox";
 import { PageEnter } from "@/components/page-enter";
 import { PageHeader } from "@/components/page-header";
-import { ImageLightbox } from "@/components/image-lightbox";
+import { PageLoader } from "@/components/page-loader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -296,9 +297,11 @@ function ImageManagerContent() {
   }, [startDate, endDate]);
 
   return (
-    <PageEnter className="space-y-4">
+    <PageEnter className="space-y-6">
       <PageHeader
+        eyebrow="Image Library"
         title="图片管理"
+        description="浏览、筛选和打标签管理生成的图片，随时掌握磁盘占用并按日期清理。"
         actions={
           <>
             <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
@@ -389,7 +392,7 @@ function ImageManagerContent() {
               icon={<ImageIcon />}
               value={storage.image_size_mb >= 1024 ? `${(storage.image_size_mb / 1024).toFixed(1)} GB` : `${storage.image_size_mb} MB`}
             />
-            <Card className="col-span-2 rounded-[20px]">
+            <Card className="col-span-2">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[13px] text-muted-foreground">快捷操作</div>
@@ -436,7 +439,7 @@ function ImageManagerContent() {
             </Card>
           </>
         ) : (
-          <Card className="col-span-full rounded-[20px]">
+          <Card className="col-span-full">
             <CardContent className="p-5 text-center text-sm text-muted-foreground">
               {storageLoading ? "加载存储信息..." : "存储信息加载失败"}
             </CardContent>
@@ -771,7 +774,7 @@ function ImageManagerContent() {
 export default function ImageManagerPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
   if (isCheckingAuth || !session || session.role !== "admin") {
-    return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-muted-foreground" /></div>;
+    return <PageLoader />;
   }
   return <ImageManagerContent />;
 }

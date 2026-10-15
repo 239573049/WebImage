@@ -275,7 +275,7 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
   return (
     <>
     <div className="grid h-full min-h-0 gap-4 overflow-hidden p-4 lg:grid-cols-[288px_420px_minmax(0,1fr)]">
-      <aside className="glass flex min-h-0 flex-col overflow-hidden rounded-[22px]">
+      <aside className="surface flex min-h-0 flex-col overflow-hidden rounded-2xl">
         <div className="flex h-14 items-center justify-between border-b border-border px-4">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <History className="size-4" />
@@ -344,7 +344,7 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
         </div>
       </aside>
 
-      <section className="glass flex min-h-0 flex-col overflow-hidden rounded-[22px]">
+      <section className="surface flex min-h-0 flex-col overflow-hidden rounded-2xl">
         <div className="flex h-14 items-center justify-between border-b border-border px-5">
           <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
           <Button size="sm" onClick={() => void submit()} disabled={submitting || running}>
@@ -385,7 +385,7 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
         </div>
       </section>
 
-      <section className="glass flex min-h-0 flex-col overflow-hidden rounded-[22px]">
+      <section className="surface flex min-h-0 flex-col overflow-hidden rounded-2xl">
         <div className="flex h-14 items-center justify-between border-b border-border px-5">
           <h2 className="text-sm font-medium text-muted-foreground">生成状态</h2>
           {selectedTask ? <Badge variant={statusVariant(selectedTask.status)}>{statusText(selectedTask.status)}</Badge> : null}

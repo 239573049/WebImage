@@ -119,7 +119,7 @@ export function SearchPanel() {
 
       {searched ? <div className="mx-auto w-full max-w-6xl flex-1 pt-6">
         {loading ? (
-          <div className="glass mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-3 text-sm text-foreground/80">
+          <div className="surface mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-3 text-sm text-foreground/80">
             <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
             搜索中... {(elapsedMs / 1000).toFixed(1)}s
           </div>

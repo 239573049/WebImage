@@ -1,9 +1,8 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
-
 import { PageEnter } from "@/components/page-enter";
 import { PageHeader } from "@/components/page-header";
+import { PageLoader } from "@/components/page-loader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
@@ -25,19 +24,15 @@ export default function DebugPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
 
   if (isCheckingAuth || !session || session.role !== "admin") {
-    return (
-      <div className="flex h-full min-h-0 items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoader className="h-full" />;
   }
 
   return (
-    <PageEnter className="flex h-full min-h-0 w-full flex-col gap-4">
-      <PageHeader title="调试" />
-      <Tabs defaultValue="skills" className="flex h-full min-h-0 w-full flex-col gap-4">
-        <div className="hide-scrollbar max-w-full shrink-0 overflow-x-auto">
-          <TabsList className="w-fit">
+    <PageEnter className="flex h-full min-h-0 w-full flex-col gap-6">
+      <PageHeader eyebrow="Developer Tools" title="调试" description="直接调用 Skills 搜索、联网搜索、PPT / PSD 生成与对话能力，检查上游返回。" />
+      <Tabs defaultValue="skills" className="flex min-h-0 w-full flex-1 flex-col gap-4">
+        <div className="shrink-0">
+          <TabsList>
             {tabs.map(({ value, title }) => (
               <TabsTrigger key={value} value={value}>
                 {title}

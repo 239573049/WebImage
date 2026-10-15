@@ -9,7 +9,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
-      className={cn("border-b border-border text-xs font-medium text-muted-foreground", className)}
+      className={cn("border-b border-border text-[12px] font-medium text-muted-foreground", className)}
       {...props}
     />
   );

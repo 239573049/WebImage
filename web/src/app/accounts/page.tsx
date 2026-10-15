@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentProps } from "react";
 import {
   Ban,
   CheckCircle2,
@@ -23,8 +22,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/motion/animated-badge";
 import { PageEnter } from "@/components/page-enter";
 import { PageHeader } from "@/components/page-header";
+import { PageLoader } from "@/components/page-loader";
+import { SearchInput } from "@/components/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -87,17 +89,12 @@ const statusSegments: { label: string; value: AccountStatus | "all" }[] = [
   { label: "禁用", value: "禁用" },
 ];
 
-const statusMeta: Record<
-  AccountStatus,
-  {
-    icon: typeof CheckCircle2;
-    badge: ComponentProps<typeof Badge>["variant"];
-  }
-> = {
-  正常: { icon: CheckCircle2, badge: "success" },
-  限流: { icon: CircleAlert, badge: "warning" },
-  异常: { icon: CircleOff, badge: "danger" },
-  禁用: { icon: Ban, badge: "secondary" },
+// 状态徽标用 beUI 的 AnimatedBadge：自带状态图标，状态变化时图标会切换动画
+const statusBadge: Record<AccountStatus, AnimatedBadgeStatus> = {
+  正常: "success",
+  限流: "warning",
+  异常: "danger",
+  禁用: "neutral",
 };
 
 const metricCards = [
@@ -743,9 +740,11 @@ function AccountsPageContent() {
   };
 
   return (
-    <PageEnter className="space-y-4">
+    <PageEnter className="space-y-6">
       <PageHeader
+        eyebrow="Account Pool"
         title="号池管理"
+        description="管理 ChatGPT 账号的状态、额度与专属代理，支持批量导入、刷新和导出。"
         actions={
           <>
             <Button
@@ -881,11 +880,8 @@ function AccountsPageContent() {
                 label={item.label}
                 tone={item.tone}
                 icon={<Icon />}
-                value={
-                  <span className={typeof value === "number" ? undefined : "text-[1.1rem]"}>
-                    {typeof value === "number" ? formatCompact(value) : value}
-                  </span>
-                }
+                value={typeof value === "number" ? value : <span className="text-[1.1rem]">{value}</span>}
+                format={formatCompact}
               />
             );
           })}
@@ -936,18 +932,15 @@ function AccountsPageContent() {
           </div>
 
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-            <div className="relative min-w-0 lg:w-[260px]">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="搜索邮箱"
-                className="pl-10"
-              />
-            </div>
+            <SearchInput
+              value={query}
+              onValueChange={(value) => {
+                setQuery(value);
+                setPage(1);
+              }}
+              placeholder="搜索邮箱"
+              className="lg:w-[260px]"
+            />
             <Select
               value={typeFilter}
               onValueChange={(value) => {
@@ -1087,8 +1080,6 @@ function AccountsPageContent() {
                 </thead>
                 <tbody>
                   {currentRows.map((account) => {
-                    const status = statusMeta[account.status];
-                    const StatusIcon = status.icon;
 
                     return (
                       <tr
@@ -1135,10 +1126,9 @@ function AccountsPageContent() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant={status.badge}>
-                            <StatusIcon className="size-3.5" />
+                          <AnimatedBadge status={statusBadge[account.status]} size="sm" contentKey={account.status}>
                             {account.status}
-                          </Badge>
+                          </AnimatedBadge>
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs leading-5 text-muted-foreground">{account.email ?? "—"}</div>
@@ -1363,11 +1353,7 @@ export default function AccountsPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
 
   if (isCheckingAuth || !session || session.role !== "admin") {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   return <AccountsPageContent />;

@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, History, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, History, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
 import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
 import { ImageLightbox } from "@/components/image-lightbox";
-import { PageHeader } from "@/components/page-header";
+import { PageLoader } from "@/components/page-loader";
 import {
   Dialog,
   DialogContent,
@@ -1658,10 +1658,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-      <PageHeader title="生图" className="mb-2 shrink-0 pb-2" />
       <section className="mx-auto grid min-h-0 w-full flex-1 grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:gap-3 sm:pb-0 lg:grid-cols-[240px_minmax(0,1fr)]">
         <div className="hidden h-full min-h-0 lg:block">
-          <div className="glass h-full min-h-0 rounded-[22px] p-3">
+          <div className="surface h-full min-h-0 rounded-2xl p-3">
             <ImageSidebar
               conversations={conversations}
               isLoadingHistory={isLoadingHistory}
@@ -1836,11 +1835,7 @@ export default function ImagePage() {
   const { isCheckingAuth, session } = useAuthGuard();
 
   if (isCheckingAuth || !session) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   return <ImagePageContent isAdmin={session.role === "admin"} />;

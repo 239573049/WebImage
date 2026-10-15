@@ -1,45 +1,30 @@
-"use client";
-
 import * as React from "react";
-import { PanelLeft } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { toggleSidebar, useSidebarCollapsed } from "@/hooks/use-sidebar";
 import { cn } from "@/lib/utils";
 
 type PageHeaderProps = {
+  /** 标题上方的全大写小标签，例如 ACCOUNT POOL */
+  eyebrow?: React.ReactNode;
   title: React.ReactNode;
   description?: React.ReactNode;
-  /** 右侧操作区（刷新、导入等） */
+  /** 右侧操作区（刷新、导入、筛选等） */
   actions?: React.ReactNode;
   className?: string;
 };
 
 /**
- * 页面顶栏：侧栏折叠按钮 + 标题 + 右侧操作。所有页面统一使用，保证标题位置和字号一致。
- * 折叠按钮只在桌面端出现（移动端有自己的顶栏菜单）。
+ * 页面标题区：小标签 + 大标题 + 说明 + 右侧操作。所有页面统一使用，保证层级和间距一致。
+ * 侧栏开关和当前页面名称在顶栏里，这里只负责内容区的标题。
  */
-export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
-  const collapsed = useSidebarCollapsed();
-
+export function PageHeader({ eyebrow, title, description, actions, className }: PageHeaderProps) {
   return (
-    <header className={cn("flex min-h-10 shrink-0 items-center gap-3", className)}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        onClick={toggleSidebar}
-        title={collapsed ? "展开侧栏" : "收起侧栏"}
-        aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
-        className="hidden text-muted-foreground sm:inline-flex"
-      >
-        <PanelLeft />
-      </Button>
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-[17px] leading-tight font-semibold tracking-tight">{title}</h1>
-        {description ? <p className="truncate text-xs text-muted-foreground">{description}</p> : null}
+    <header className={cn("flex shrink-0 flex-col gap-4 pb-2 lg:flex-row lg:items-end lg:justify-between", className)}>
+      <div className="min-w-0 space-y-2.5">
+        {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
+        <h1 className="text-[26px] leading-tight font-semibold tracking-tight text-foreground sm:text-[30px]">{title}</h1>
+        {description ? <p className="text-sm leading-6 text-muted-foreground">{description}</p> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
     </header>
   );
 }

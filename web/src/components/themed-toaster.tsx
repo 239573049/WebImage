@@ -16,7 +16,7 @@ export function ThemedToaster() {
       toastOptions={{
         classNames: {
           toast:
-            "!rounded-2xl !border !border-border !bg-popover !text-popover-foreground !shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)] !text-[13px]",
+            "!rounded-xl !border !border-border !bg-popover !text-popover-foreground !shadow-overlay !text-[13px]",
         },
       }}
     />

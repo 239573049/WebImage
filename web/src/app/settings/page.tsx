@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { LoaderCircle } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageEnter } from "@/components/page-enter";
+import { PageLoader } from "@/components/page-loader";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 import { BackupSettingsCard } from "./components/backup-settings-card";
@@ -77,19 +77,17 @@ function SettingsDataController() {
 
 function SettingsPageContent() {
   return (
-    <PageEnter className="space-y-5">
+    <PageEnter className="space-y-6">
       <SettingsDataController />
       <SettingsHeader />
-      <Tabs defaultValue="basic" className="space-y-4">
-        <div className="hide-scrollbar overflow-x-auto">
-          <TabsList variant="line" className="min-w-max justify-start">
-            {settingsTabs.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value} className="px-4">
-                {tab.title}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
+      <Tabs defaultValue="basic" variant="underline" className="gap-5">
+        <TabsList>
+          {settingsTabs.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value}>
+              {tab.title}
+            </TabsTrigger>
+          ))}
+        </TabsList>
         <TabsContent value="basic">
           <ConfigCard />
         </TabsContent>
@@ -125,11 +123,7 @@ export default function SettingsPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
 
   if (isCheckingAuth || !session || session.role !== "admin") {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   return <SettingsPageContent />;

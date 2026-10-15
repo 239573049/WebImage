@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [调整] Web 管理后台整体改版为控制台风格（深色海军蓝 / 浅色两套主题），界面组件改用 [beUI](https://beui.dev) 动效组件库：可收起为图标栏的侧栏（`⌘B`，移动端为抽屉）、顶栏搜索与 `⌘K` 命令面板、按钮 / 开关 / 复选框 / 标签页 / 日期范围选择器，以及数字滚动的指标卡；日志页的调用统计改为每分钟调用柱状图 + 按接口用量。侧栏和页面标题统一显示为 WebImage。
 + [调整] 默认 compose 里不再包含 Means 对象存储，需要图片直链时按 `docs/means-image-storage.md` 单独部署。
 + [调整] 部署方式精简为根目录一份 `docker-compose.yml`（主服务 + Sentinel 求解服务），删除多余的 compose：`docker-compose.warp.yml`（内置的 WARP / Privoxy / FlareSolverr 清障方案，社区版已无注册功能，且它是唯一一个缺求解服务、网页生图跑不起来的 compose）、`docker-compose.local.yml`（与主 compose 重复）、`docker-compose.means.yml`（Means 改为按需独立部署，见 `docs/means-image-storage.md`）。稳定代理运行时改为把 `CHATGPT2API_PROXY_RUNTIME_PROXY_URL` 指向宿主机上的 HTTP 代理，`config.json` 里指向 `privoxy:8118` / `flaresolverr:8191` 的默认值已清空。
 

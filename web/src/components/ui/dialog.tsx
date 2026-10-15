@@ -33,7 +33,7 @@ function DialogOverlay({
       data-slot="dialog-overlay"
       // 只压暗、不做整屏模糊：实时模糊整页内容在大屏上每帧都要重新计算
       className={cn(
-        "fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
         className,
       )}
       {...props}
@@ -55,14 +55,14 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[28px] border border-border bg-popover p-6 text-popover-foreground shadow-[0_28px_90px_-24px_rgba(0,0,0,0.55)] duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[20px] border border-border bg-popover p-6 text-popover-foreground shadow-overlay duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className,
         )}
         {...props}
       >
         {children}
         {showCloseButton ? (
-          <DialogPrimitive.Close className="absolute top-4 right-4 inline-flex size-7 items-center justify-center rounded-full bg-secondary text-muted-foreground outline-none transition-colors hover:bg-secondary/70 hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/40 disabled:pointer-events-none">
+          <DialogPrimitive.Close className="absolute top-4 right-4 inline-flex size-7 items-center justify-center rounded-lg border border-border text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/40 disabled:pointer-events-none">
             <X className="size-3.5" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>

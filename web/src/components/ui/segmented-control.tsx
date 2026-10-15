@@ -38,7 +38,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={rest["aria-label"]}
-      className={cn("inline-flex items-center gap-0.5 rounded-2xl border border-border bg-field p-1", className)}
+      className={cn("inline-flex items-center gap-0.5 rounded-xl border border-border bg-field p-1", className)}
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -52,7 +52,7 @@ export function SegmentedControl<T extends string>({
             disabled={option.disabled}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-xl font-medium whitespace-nowrap outline-none transition-[background-color,color,box-shadow] duration-150 focus-visible:ring-4 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-45 [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+              "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap outline-none transition-[background-color,color,box-shadow] duration-150 focus-visible:ring-4 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-45 [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
               size === "sm" ? "h-7 px-2.5 text-xs" : "h-8 px-3.5 text-[13px]",
               active
                 ? "bg-segment text-foreground shadow-sm"

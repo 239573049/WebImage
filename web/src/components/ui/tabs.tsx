@@ -1,92 +1,65 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { Tabs as TabsPrimitive } from "radix-ui"
+import * as React from "react";
 
-import { cn } from "@/lib/utils"
+import * as MotionTabs from "@/components/motion/tabs";
+import { cn } from "@/lib/utils";
 
-function Tabs({
-  className,
-  orientation = "horizontal",
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Root>) {
+type TabsVariant = "segment" | "underline" | "pill";
+
+const TabsVariantContext = React.createContext<TabsVariant>("segment");
+
+/**
+ * beUI 的 Tabs：选中指示器在选项之间弹簧滑动，选项过多时自带左右滚动按钮。
+ * variant：segment（分段控件，默认）/ underline（下划线，适合标签很多的设置页）/ pill。
+ */
+function Tabs({ variant = "segment", className, ...props }: React.ComponentProps<typeof MotionTabs.Tabs>) {
   return (
-    <TabsPrimitive.Root
-      data-slot="tabs"
-      data-orientation={orientation}
-      orientation={orientation}
+    <TabsVariantContext.Provider value={variant}>
+      <MotionTabs.Tabs variant={variant} className={cn("flex flex-col gap-4", className)} {...props} />
+    </TabsVariantContext.Provider>
+  );
+}
+
+function TabsList({ className, wrapperClassName, ...props }: React.ComponentProps<typeof MotionTabs.TabsList>) {
+  const variant = React.useContext(TabsVariantContext);
+  return (
+    <MotionTabs.TabsList
+      wrapperClassName={cn(variant === "underline" && "border-b border-border", wrapperClassName)}
       className={cn(
-        "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
-        className
+        variant === "segment" && "gap-0.5 rounded-xl border border-border bg-field p-1",
+        variant === "underline" && "gap-1 border-b-0",
+        variant === "pill" && "border border-border bg-field",
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
-const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center text-muted-foreground group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
-  {
-    variants: {
-      variant: {
-        // 分段控件：圆角容器 + 选中项浮起的"滑块"
-        default: "h-10 gap-0.5 rounded-2xl border border-border bg-field p-1",
-        // 轻量胶囊：选中项是系统蓝的淡色底（用于标签很多的场景）
-        line: "h-auto gap-1 bg-transparent p-0",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-)
-
-function TabsList({
-  className,
-  variant = "default",
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.List> &
-  VariantProps<typeof tabsListVariants>) {
+function TabsTrigger({ className, indicatorClassName, ...props }: React.ComponentProps<typeof MotionTabs.TabsTrigger>) {
+  const variant = React.useContext(TabsVariantContext);
   return (
-    <TabsPrimitive.List
-      data-slot="tabs-list"
-      data-variant={variant}
-      className={cn(tabsListVariants({ variant }), className)}
-      {...props}
-    />
-  )
-}
-
-function TabsTrigger({
-  className,
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
-  return (
-    <TabsPrimitive.Trigger
-      data-slot="tabs-trigger"
+    <MotionTabs.TabsTrigger
       className={cn(
-        "relative inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-transparent px-3.5 text-[13px] font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] duration-150 group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/40 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        "group-data-[variant=default]/tabs-list:h-8 group-data-[variant=default]/tabs-list:data-[state=active]:bg-segment group-data-[variant=default]/tabs-list:data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:shadow-sm",
-        "group-data-[variant=line]/tabs-list:h-8 group-data-[variant=line]/tabs-list:hover:bg-accent group-data-[variant=line]/tabs-list:data-[state=active]:bg-primary/15 group-data-[variant=line]/tabs-list:data-[state=active]:text-primary",
-        className
+        "gap-1.5 text-[13px] [&_svg]:size-4 [&_svg]:shrink-0",
+        variant === "segment" && "rounded-lg px-3.5 py-1.5",
+        variant === "underline" && "min-h-11 px-3.5",
+        className,
+      )}
+      indicatorClassName={cn(
+        variant === "segment" && "rounded-lg",
+        variant === "underline" && "h-0.5 rounded-full",
+        indicatorClassName,
       )}
       {...props}
     />
-  )
+  );
 }
 
-function TabsContent({
-  className,
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Content>) {
-  return (
-    <TabsPrimitive.Content
-      data-slot="tabs-content"
-      className={cn("flex-1 outline-none", className)}
-      {...props}
-    />
-  )
+/** 未激活的面板默认卸载：设置页、调试页的每个面板都有自己的数据加载和轮询 */
+function TabsContent({ className, keepMounted = false, ...props }: React.ComponentProps<typeof MotionTabs.TabsContent>) {
+  return <MotionTabs.TabsContent keepMounted={keepMounted} className={cn("mt-0 min-h-0 flex-1 outline-none", className)} {...props} />;
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+export { Tabs, TabsContent, TabsList, TabsTrigger };
