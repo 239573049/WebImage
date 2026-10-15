@@ -86,6 +86,10 @@ DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_RESPONSES_MODEL = "gpt-5.5"
 CODEX_RESPONSES_TIMEOUT_SECS = 1200
+# Cloudflare 挑战页（cf-mitigated: challenge）的重试次数与间隔：挑战响应会下发 clearance，
+# 重试即可拿到真实内容；出口 IP 风险偏高时单次不够，需要多试几次。
+_CLOUDFLARE_CHALLENGE_RETRIES = 3
+_CLOUDFLARE_CHALLENGE_WAIT_SECS = 1.0
 CODEX_URLLIB_USER_AGENT = f"Python-urllib/{sys.version_info.major}.{sys.version_info.minor}"
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
@@ -309,14 +313,15 @@ class OpenAIBackendAPI:
 
     def _get_me(self) -> Dict[str, Any]:
         path = "/backend-api/me"
-        response = self.session.get(self.base_url + path, headers=self._headers(path), timeout=20)
+        response = self._fetch("get", self.base_url + path, headers=self._headers(path), timeout=20)
         if response.status_code != 200:
             self._raise_on_error(response, path)
         return response.json()
 
     def _get_conversation_init(self) -> Dict[str, Any]:
         path = "/backend-api/conversation/init"
-        response = self.session.post(
+        response = self._fetch(
+            "post",
             self.base_url + path,
             headers=self._headers(path, {"Content-Type": "application/json"}),
             json={
@@ -333,8 +338,8 @@ class OpenAIBackendAPI:
 
     def _get_default_account(self) -> Dict[str, Any]:
         path = "/backend-api/accounts/check/v4-2023-04-27"
-        response = self.session.get(self.base_url + path + "?timezone_offset_min=-480", headers=self._headers(path),
-                                    timeout=20)
+        response = self._fetch("get", self.base_url + path + "?timezone_offset_min=-480",
+                               headers=self._headers(path), timeout=20)
         if response.status_code != 200:
             self._raise_on_error(response, path)
         payload = response.json()
@@ -2751,12 +2756,20 @@ class OpenAIBackendAPI:
         """
         request = getattr(self.session, method)
         response = request(url, **kwargs)
-        if self._is_cloudflare_challenge(response):
+        for attempt in range(_CLOUDFLARE_CHALLENGE_RETRIES):
+            if not self._is_cloudflare_challenge(response):
+                return response
             try:
                 response.close()
             except Exception:
                 pass
-            logger.info({"event": "cloudflare_challenge_retry", "method": method, "url": url})
+            logger.warning({
+                "event": "cloudflare_challenge_retry",
+                "method": method,
+                "url": url,
+                "attempt": attempt + 1,
+            })
+            time.sleep(_CLOUDFLARE_CHALLENGE_WAIT_SECS)
             response = request(url, **kwargs)
         return response
 
