@@ -16,10 +16,11 @@ services:
   # 只接收挑战参数（prepare 响应 + 令牌种子 p），不接收账号 token / Cookie / prompt
   # ------------------------------------------------------------------
   sentinel-solver:
+    # 默认拉取 CI 推送的镜像；本地改了 solver 代码时用 --build 重新构建
+    image: ${SENTINEL_SOLVER_IMAGE:-ghcr.io/239573049/webimage-sentinel-solver:latest}
     build:
       context: .
       dockerfile: docker/solver.Dockerfile
-    image: chatgpt2api-sentinel-solver:latest
     container_name: chatgpt2api-solver
     restart: unless-stopped
     environment:
