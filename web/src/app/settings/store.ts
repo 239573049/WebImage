@@ -185,7 +185,6 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
     global_system_prompt: String(config.global_system_prompt || ""),
-    default_upstream_model_name: String(config.default_upstream_model_name || "gpt-6"),
     default_thinking_effort: defaultThinkingEffort,
     sensitive_words: Array.isArray(config.sensitive_words) ? config.sensitive_words : [],
     ai_review: {
@@ -309,7 +308,6 @@ type SettingsStore = {
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
   setGlobalSystemPrompt: (value: string) => void;
-  setDefaultUpstreamModelName: (value: string) => void;
   setDefaultThinkingEffort: (value: "auto" | "standard" | "extended" | "max") => void;
   setCustomImageModelsText: (value: string) => void;
   setDefaultImageModel: (value: string) => void;
@@ -438,7 +436,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         proxy: config.proxy.trim(),
         base_url: String(config.base_url || "").trim(),
         global_system_prompt: String(config.global_system_prompt || "").trim(),
-        default_upstream_model_name: String(config.default_upstream_model_name || "gpt-6").trim() || "gpt-6",
         default_thinking_effort: ["standard", "extended", "max"].includes(String(config.default_thinking_effort))
           ? config.default_thinking_effort
           : "auto",
@@ -626,10 +623,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setGlobalSystemPrompt: (value) => {
     set((state) => state.config ? { config: { ...state.config, global_system_prompt: value } } : {});
-  },
-
-  setDefaultUpstreamModelName: (value) => {
-    set((state) => state.config ? { config: { ...state.config, default_upstream_model_name: value } } : {});
   },
 
   setDefaultThinkingEffort: (value) => {

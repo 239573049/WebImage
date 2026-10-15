@@ -614,19 +614,18 @@ class OpenAIBackendAPI:
     def _image_model_settings(self, model: str) -> tuple[str, str]:
         """把标准图片模型名映射为上游模型及思考强度。
 
-        `gpt-image-2` 仍按配置映射到 `default_upstream_model_name`；其余 Web 生图模型
+        `gpt-image-2` 在上游模型目录里没有对应 slug，图片链路由
+        `system_hints: ["picture_v2"]` 路由，统一发送官网客户端同款的 `auto`，
+        避免把文本模型 slug 送进图片接口导致 404 Model not found；其余 Web 生图模型
         （如 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`）为上游官网模型目录里的
-        真实 slug，原样透传，避免被映射成 `auto`。
+        真实 slug，原样透传。
         """
         _, base_model = split_image_model(model)
         if not base_model:
             return "auto", ""
         if base_model == "gpt-image-2":
-            upstream_model = config.default_upstream_model_name
-        elif base_model == CODEX_IMAGE_MODEL:
-            upstream_model = base_model
-        else:
-            upstream_model = base_model
+            return "auto", self._normalize_thinking_effort(config.default_thinking_effort)
+        upstream_model = base_model
         model_name, separator, suffix = upstream_model.rpartition("-")
         if separator and suffix.lower() in {"standard", "extended", "max"}:
             return model_name, suffix.lower()

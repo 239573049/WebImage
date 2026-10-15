@@ -767,10 +767,6 @@ class ConfigStore:
         return str(self.data.get("global_system_prompt") or "").strip()
 
     @property
-    def default_upstream_model_name(self) -> str:
-        return str(self.data.get("default_upstream_model_name") or "gpt-6").strip()
-
-    @property
     def default_thinking_effort(self) -> str:
         value = str(self.data.get("default_thinking_effort") or "auto").strip().lower()
         return value if value in {"auto", "standard", "extended", "max"} else "auto"
@@ -843,7 +839,6 @@ class ConfigStore:
         data["sensitive_words"] = self.sensitive_words
         data["ai_review"] = self.ai_review
         data["global_system_prompt"] = self.global_system_prompt
-        data["default_upstream_model_name"] = self.default_upstream_model_name
         data["default_thinking_effort"] = self.default_thinking_effort
         data["backup"] = self.get_backup_settings()
         data["image_storage"] = self.get_image_storage_settings()
