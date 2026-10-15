@@ -175,7 +175,6 @@ export type SettingsConfig = {
   proxy: string;
   base_url?: string;
   global_system_prompt?: string;
-  default_upstream_model_name?: string;
   default_thinking_effort?: "auto" | "standard" | "extended" | "max";
   sensitive_words?: string[];
   ai_review?: {

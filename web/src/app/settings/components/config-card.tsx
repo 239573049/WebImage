@@ -50,7 +50,6 @@ export function ConfigCard() {
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
   const setGlobalSystemPrompt = useSettingsStore((state) => state.setGlobalSystemPrompt);
-  const setDefaultUpstreamModelName = useSettingsStore((state) => state.setDefaultUpstreamModelName);
   const setDefaultThinkingEffort = useSettingsStore((state) => state.setDefaultThinkingEffort);
   const setCustomImageModelsText = useSettingsStore((state) => state.setCustomImageModelsText);
   const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
@@ -167,15 +166,6 @@ export function ConfigCard() {
                 placeholder="https://example.com"
               />
               <p className="text-xs leading-5 text-muted-foreground">用于生成图片结果的访问前缀地址。</p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[13px] font-medium text-foreground/80">默认请求上游模型名称</label>
-              <Input
-                value={String(config?.default_upstream_model_name || "")}
-                onChange={(event) => setDefaultUpstreamModelName(event.target.value)}
-                placeholder="gpt-6"
-              />
-              <p className="text-xs leading-5 text-muted-foreground">gpt-image-2 发起图片请求时使用的上游模型名称，默认 gpt-6。</p>
             </div>
             <div className="space-y-2">
               <label className="text-[13px] font-medium text-foreground/80">默认思考强度</label>
