@@ -8,6 +8,7 @@ import { ImageComposer } from "@/app/image/components/image-composer";
 import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { PageHeader } from "@/components/page-header";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +36,7 @@ import {
   clearImageConversations,
   deleteImageConversation,
   getImageConversationStats,
+  hasPersistentConversationChanges,
   listImageConversations,
   renameImageConversation,
   saveImageConversation,
@@ -401,7 +403,8 @@ async function syncConversationImageTasks(items: ImageConversation[]) {
   });
 
   if (changed) {
-    await saveImageConversations(normalized);
+    // 只写入真正被修改过的会话（未修改的会话对象引用保持不变），不要把整个历史再写一遍
+    await saveImageConversations(normalized.filter((conversation, index) => conversation !== items[index]));
   }
   return normalized;
 }
@@ -451,7 +454,7 @@ async function recoverConversationHistory(items: ImageConversation[]) {
   });
 
   if (changed) {
-    await saveImageConversations(normalized);
+    await saveImageConversations(normalized.filter((conversation, index) => conversation !== items[index]));
   }
 
   return syncConversationImageTasks(normalized);
@@ -909,7 +912,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     async (
       conversationId: string,
       updater: (current: ImageConversation | null) => ImageConversation,
-      options: { persist?: boolean } = {},
+      // "when-changed"：仅当结果、错误、状态流转等需要持久化的内容变化时才写盘；
+      // 轮询里每个 tick 都会变的运行进度（progress / elapsedSecs 等）只更新内存，不落盘
+      options: { persist?: boolean | "when-changed" } = {},
     ) => {
       const current = conversationsRef.current.find((item) => item.id === conversationId) ?? null;
       const nextConversation = updater(current);
@@ -919,7 +924,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       ]);
       conversationsRef.current = nextConversations;
       setConversations(nextConversations);
-      if (options.persist !== false) {
+      const shouldPersist =
+        options.persist === false
+          ? false
+          : options.persist === "when-changed"
+            ? hasPersistentConversationChanges(current, nextConversation)
+            : true;
+      if (shouldPersist) {
         await saveImageConversation(nextConversation);
       }
     },
@@ -939,14 +950,15 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     clearComposerInputs();
   }, [clearComposerInputs]);
 
-  const handleCreateDraft = () => {
+  // 以下回调都会传给 memo 过的子组件：用 useCallback 保持引用稳定，输入框打字时子组件才不会跟着重渲染
+  const handleCreateDraft = useCallback(() => {
     shouldStickToBottomRef.current = true;
     const btn = scrollToLatestBtnRef.current;
     if (btn) btn.style.display = "none";
     setSelectedConversationId(null);
     resetComposer();
     textareaRef.current?.focus();
-  };
+  }, [resetComposer]);
 
   const handleDeleteConversation = async (id: string) => {
     const nextConversations = conversations.filter((item) => item.id !== id);
@@ -1029,8 +1041,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
-  const handleRenameConversation = async (id: string, title: string) => {
-    const nextConversations = conversations.map((item) =>
+  const handleRenameConversation = useCallback(async (id: string, title: string) => {
+    const nextConversations = conversationsRef.current.map((item) =>
       item.id === id ? { ...item, title, updatedAt: new Date().toISOString() } : item,
     );
     conversationsRef.current = sortImageConversations(nextConversations);
@@ -1041,25 +1053,25 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       const message = error instanceof Error ? error.message : "重命名失败";
       toast.error(message);
     }
-  };
+  }, []);
 
-  const openDeleteConversationConfirm = (id: string) => {
+  const openDeleteConversationConfirm = useCallback((id: string) => {
     setIsHistoryOpen(false);
     setDeleteConfirm({ type: "one", id });
-  };
+  }, []);
 
-  const openDeletePromptConfirm = (conversationId: string, turnId: string) => {
+  const openDeletePromptConfirm = useCallback((conversationId: string, turnId: string) => {
     setDeleteConfirm({ type: "prompt", conversationId, turnId });
-  };
+  }, []);
 
-  const openDeleteResultsConfirm = (conversationId: string, turnId: string) => {
+  const openDeleteResultsConfirm = useCallback((conversationId: string, turnId: string) => {
     setDeleteConfirm({ type: "results", conversationId, turnId });
-  };
+  }, []);
 
-  const openClearHistoryConfirm = () => {
+  const openClearHistoryConfirm = useCallback(() => {
     setIsHistoryOpen(false);
     setDeleteConfirm({ type: "all" });
-  };
+  }, []);
 
   const handleConfirmDelete = async () => {
     const target = deleteConfirm;
@@ -1245,7 +1257,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             updatedAt: new Date().toISOString(),
             turns,
           };
-        });
+        }, { persist: "when-changed" });
       };
 
       try {
@@ -1631,32 +1643,48 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
+  // handleSubmit 依赖一堆输入状态，每次渲染都是新函数；通过 ref 取最新版本，对外暴露引用稳定的回调，
+  // 这样输入区之外的状态变化（轮询、切换会话）不会让 ImageComposer 白白重渲染
+  const handleSubmitRef = useRef(handleSubmit);
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  });
+  const submitFromComposer = useCallback(() => handleSubmitRef.current(), []);
+  const handleImageCountChange = useCallback(
+    (value: string) => setImageCount(value ? clampImageCount(value) : ""),
+    [],
+  );
+  const handlePickReferenceImage = useCallback(() => fileInputRef.current?.click(), []);
+
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-      <section className="mx-auto grid h-full min-h-0 w-full flex-1 grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:gap-3 sm:pb-0 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
-          <ImageSidebar
-            conversations={conversations}
-            isLoadingHistory={isLoadingHistory}
-            selectedConversationId={selectedConversationId}
-            onCreateDraft={handleCreateDraft}
-            onClearHistory={openClearHistoryConfirm}
-            onSelectConversation={setSelectedConversationId}
-            onDeleteConversation={openDeleteConversationConfirm}
-            onRenameConversation={handleRenameConversation}
-            formatConversationTime={formatConversationTime}
-          />
+      <PageHeader title="生图" className="mb-2 shrink-0 pb-2" />
+      <section className="mx-auto grid min-h-0 w-full flex-1 grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:gap-3 sm:pb-0 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <div className="hidden h-full min-h-0 lg:block">
+          <div className="glass h-full min-h-0 rounded-[22px] p-3">
+            <ImageSidebar
+              conversations={conversations}
+              isLoadingHistory={isLoadingHistory}
+              selectedConversationId={selectedConversationId}
+              onCreateDraft={handleCreateDraft}
+              onClearHistory={openClearHistoryConfirm}
+              onSelectConversation={setSelectedConversationId}
+              onDeleteConversation={openDeleteConversationConfirm}
+              onRenameConversation={handleRenameConversation}
+              formatConversationTime={formatConversationTime}
+            />
+          </div>
         </div>
 
         <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
-          <DialogContent className="flex h-[min(82dvh,760px)] w-[92vw] max-w-[460px] flex-col overflow-hidden rounded-[32px] border-white/80 bg-white p-0 shadow-[0_32px_110px_-38px_rgba(15,23,42,0.45)] sm:rounded-[36px]">
-            <DialogHeader className="px-6 pt-7 pb-4 sm:px-8">
-              <DialogTitle className="flex items-center gap-2 text-xl font-bold tracking-tight">
+          <DialogContent className="flex h-[min(82dvh,760px)] w-[92vw] max-w-[460px] flex-col overflow-hidden">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
                 <History className="size-5" />
                 历史记录
               </DialogTitle>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8 sm:px-8">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               <ImageSidebar
                 conversations={conversations}
                 isLoadingHistory={isLoadingHistory}
@@ -1680,27 +1708,25 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         </Dialog>
 
         <div className="flex min-h-0 flex-col gap-2 sm:gap-4">
-          <div className="flex items-center justify-between gap-2 px-1 lg:hidden">
+          <div className="flex items-center gap-2 px-1 lg:hidden">
             <Button
               variant="outline"
-              className="h-10 flex-1 rounded-2xl border-stone-200 bg-white/90 text-stone-700 shadow-sm"
+              className="flex-1 justify-start"
               onClick={() => setIsHistoryOpen(true)}
             >
-              <History className="mr-2 size-4" />
+              <History className="size-4" />
               历史记录 ({conversations.length})
             </Button>
-            <Button
-              className="h-10 rounded-2xl bg-stone-950 text-white shadow-sm"
-              onClick={handleCreateDraft}
-            >
+            <Button onClick={handleCreateDraft}>
               <Plus className="size-4" />
               新建
             </Button>
             <Button
               variant="outline"
-              className="h-10 rounded-2xl border-stone-200 bg-white/85 px-3 text-stone-600 shadow-sm"
+              size="icon"
               onClick={openClearHistoryConfirm}
               disabled={conversations.length === 0}
+              aria-label="清空历史记录"
             >
               <Trash2 className="size-4" />
             </Button>
@@ -1734,7 +1760,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
               aria-label="滚动到最新消息"
               title="滚动到最新消息"
               onClick={() => scrollResultsToLatest("smooth")}
-              className="absolute bottom-4 left-1/2 z-20 inline-flex size-11 -translate-x-1/2 items-center justify-center rounded-full border border-stone-200 bg-white/95 text-stone-700 shadow-lg shadow-stone-200/60 backdrop-blur transition hover:-translate-y-0.5 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-white/10 dark:bg-stone-800/95 dark:text-stone-100 dark:shadow-black/40 dark:hover:bg-stone-700"
+              className="absolute bottom-4 left-1/2 z-20 inline-flex size-11 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-popover text-foreground shadow-md transition-[background-color,transform] hover:-translate-y-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               style={{ display: "none" }}
             >
               <ArrowDown className="size-5" />
@@ -1757,15 +1783,15 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             textareaRef={textareaRef}
             fileInputRef={fileInputRef}
             onPromptChange={setImagePrompt}
-            onImageCountChange={(value) => setImageCount(value ? clampImageCount(value) : "")}
+            onImageCountChange={handleImageCountChange}
             onImageRatioChange={setImageRatio}
             onImageTierChange={setImageTier}
             onImageWidthChange={setImageWidth}
             onImageHeightChange={setImageHeight}
             onImageQualityChange={setImageQuality}
             onImageModelChange={handleImageModelChange}
-            onSubmit={handleSubmit}
-            onPickReferenceImage={() => fileInputRef.current?.click()}
+            onSubmit={submitFromComposer}
+            onPickReferenceImage={handlePickReferenceImage}
             onReferenceImageChange={handleReferenceImageChange}
             onRemoveReferenceImage={handleRemoveReferenceImage}
           />
@@ -1782,7 +1808,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
       {deleteConfirm ? (
         <Dialog open onOpenChange={(open) => (!open ? setDeleteConfirm(null) : null)}>
-          <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+          <DialogContent showCloseButton={false}>
             <DialogHeader className="gap-2">
               <DialogTitle>{deleteConfirmTitle}</DialogTitle>
               <DialogDescription className="text-sm leading-6">
@@ -1790,10 +1816,10 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>
                 取消
               </Button>
-              <Button className="bg-rose-600 text-white hover:bg-rose-700" onClick={() => void handleConfirmDelete()}>
+              <Button variant="destructive" onClick={() => void handleConfirmDelete()}>
                 确认删除
               </Button>
             </DialogFooter>
@@ -1812,7 +1838,7 @@ export default function ImagePage() {
   if (isCheckingAuth || !session) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-stone-400" />
+        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
       </div>
     );
   }

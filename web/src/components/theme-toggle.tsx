@@ -8,7 +8,7 @@ export function ThemeToggle() {
       aria-label="切换主题"
       title="切换主题"
       variant="circle"
-      className="inline-flex size-8 shrink-0 items-center justify-center text-stone-500 transition hover:text-stone-900 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4"
+      className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-foreground/70 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/40 [&_svg]:size-4"
     />
   );
 }

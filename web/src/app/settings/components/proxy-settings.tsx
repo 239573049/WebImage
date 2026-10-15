@@ -10,8 +10,9 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   fetchProxy,
   testProxy,
@@ -102,45 +103,37 @@ export function ProxySettingsCard() {
   };
 
   return (
-    <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
-      <CardContent className="space-y-6 p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-stone-100">
-              <Wifi className="size-5 text-stone-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">上游代理配置</h2>
-              <p className="text-sm text-stone-500">
-                为 chatgpt.com 的请求配置出网代理，适合国内服务器部署；Sub2API / CPA 请求不受影响。
-              </p>
-            </div>
-          </div>
+    <Card>
+      <CardHeader className="flex-row items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+          <Wifi className="size-4" />
         </div>
-
+        <div className="min-w-0 space-y-1">
+          <CardTitle>上游代理配置</CardTitle>
+          <CardDescription>
+            为 chatgpt.com 的请求配置出网代理，适合国内服务器部署；Sub2API / CPA 请求不受影响。
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5 p-5">
         {isLoading ? (
           <div className="flex items-center justify-center py-10">
-            <LoaderCircle className="size-5 animate-spin text-stone-400" />
+            <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="space-y-4">
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
-              <input
-                type="checkbox"
-                className="mt-1 size-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900"
-                checked={formEnabled}
-                onChange={(event) => setFormEnabled(event.target.checked)}
-              />
+          <div className="space-y-5">
+            <label className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-field/50 px-4 py-3">
               <div className="space-y-0.5">
-                <div className="text-sm font-medium text-stone-800">启用代理</div>
-                <div className="text-sm text-stone-500">
+                <div className="text-[13px] font-medium text-foreground/80">启用代理</div>
+                <div className="text-xs leading-5 text-muted-foreground">
                   关闭后 chatgpt.com 请求会直连。保存后立即生效，无需重启。
                 </div>
               </div>
+              <Switch checked={formEnabled} onCheckedChange={(checked) => setFormEnabled(checked)} />
             </label>
 
             <div className="space-y-2">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-stone-700">
+              <label className="flex items-center gap-1.5 text-[13px] font-medium text-foreground/80">
                 <PlugZap className="size-3.5" />
                 代理地址
               </label>
@@ -148,19 +141,19 @@ export function ProxySettingsCard() {
                 value={formUrl}
                 onChange={(event) => setFormUrl(event.target.value)}
                 placeholder="http://user:pass@host:port 或 socks5://host:port"
-                className="h-11 rounded-xl border-stone-200 bg-white font-mono text-xs"
+                className="font-mono text-xs"
               />
-              <div className="text-xs text-stone-400">
+              <div className="text-xs leading-5 text-muted-foreground">
                 支持 <code className="font-mono">http / https / socks4 / socks5 / socks5h</code>。
               </div>
             </div>
 
             {testResult ? (
               <div
-                className={`rounded-xl border px-4 py-3 text-sm leading-6 ${
+                className={`rounded-xl px-3 py-2 text-xs leading-6 ${
                   testResult.ok
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : "border-rose-200 bg-rose-50 text-rose-800"
+                    ? "bg-success/10 text-success"
+                    : "bg-destructive/10 text-destructive"
                 }`}
               >
                 {testResult.ok ? (
@@ -173,9 +166,8 @@ export function ProxySettingsCard() {
               </div>
             ) : null}
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
-                className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
                 onClick={() => void handleSave()}
                 disabled={isSaving || !dirty}
               >
@@ -184,7 +176,6 @@ export function ProxySettingsCard() {
               </Button>
               <Button
                 variant="outline"
-                className="h-10 rounded-xl border-stone-200 bg-white px-5 text-stone-700"
                 onClick={() => void handleTest()}
                 disabled={isTesting}
               >

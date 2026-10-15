@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, FileArchive, FileText, KeyRound, ListChecks, type LucideIcon } from "lucide-react";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import webConfig from "@/constants/common-env";
 import { getStoredAuthSession } from "@/store/auth";
 
@@ -217,23 +218,33 @@ const docs: ApiDoc[] = [
 
 const usableModels = ["gpt-image-2", "codex-gpt-image-2", "auto", "gpt-5", "gpt-5-1", "gpt-5-2", "gpt-5-3", "gpt-5-3-mini", "gpt-5-mini"];
 
+function methodBadgeVariant(method: string): "info" | "success" | "danger" {
+  if (method === "POST") {
+    return "success";
+  }
+  if (method === "DELETE") {
+    return "danger";
+  }
+  return "info";
+}
+
 function ParamTable({ rows }: { rows: ParamRow[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-stone-200">
+    <div className="overflow-hidden rounded-2xl border border-border">
       <table className="w-full text-left text-xs">
-        <thead className="bg-stone-50 text-stone-500">
-          <tr>
-            <th className="px-3 py-2 font-medium">参数</th>
-            <th className="px-3 py-2 font-medium">类型</th>
-            <th className="px-3 py-2 font-medium">说明</th>
+        <thead className="bg-field/50">
+          <tr className="text-xs font-medium text-muted-foreground">
+            <th className="px-4 py-3 font-medium whitespace-nowrap">参数</th>
+            <th className="px-4 py-3 font-medium whitespace-nowrap">类型</th>
+            <th className="px-4 py-3 font-medium">说明</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-stone-100 bg-white">
+        <tbody className="divide-y divide-border">
           {rows.map(([name, type, desc]) => (
-            <tr key={name}>
-              <td className="px-3 py-2 font-mono text-stone-800">{name}</td>
-              <td className="px-3 py-2 font-mono text-stone-500">{type}</td>
-              <td className="px-3 py-2 text-stone-600">{desc}</td>
+            <tr key={name} className="transition-colors hover:bg-accent/60">
+              <td className="px-4 py-3 font-mono whitespace-nowrap text-foreground">{name}</td>
+              <td className="px-4 py-3 font-mono whitespace-nowrap text-muted-foreground">{type}</td>
+              <td className="px-4 py-3 text-foreground/80">{desc}</td>
             </tr>
           ))}
         </tbody>
@@ -259,42 +270,36 @@ export function ApiDocsCard() {
   }, []);
 
   return (
-    <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
-      <CardContent className="space-y-5 p-6">
-        <div>
-          <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
-            <KeyRound className="size-5 text-stone-500" />
-            接口接入说明
-          </div>
-          <p className="mt-1 text-xs leading-6 text-stone-500">
-            第三方应用按 OpenAI 兼容接口接入；文件任务接口也使用同一套鉴权方式。
-          </p>
+    <Card>
+      <CardHeader className="flex-row items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+          <KeyRound className="size-4" />
         </div>
-
+        <div className="min-w-0 space-y-1">
+          <CardTitle>接口接入说明</CardTitle>
+          <CardDescription>第三方应用按 OpenAI 兼容接口接入；文件任务接口也使用同一套鉴权方式。</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5 p-5">
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2">
-            <div className="text-xs text-stone-500">服务地址</div>
-            <div className="break-all font-mono text-xs text-stone-800">{serviceBaseUrl}</div>
-          </div>
-          <div className="space-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2">
-            <div className="text-xs text-stone-500">Base URL（OpenAI）</div>
-            <div className="break-all font-mono text-xs text-stone-800">{openAIBaseUrl}</div>
-          </div>
-          <div className="space-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2">
-            <div className="text-xs text-stone-500">API Key</div>
-            <div className="break-all font-mono text-xs text-stone-800">{displayKey}</div>
-          </div>
-          <div className="space-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2">
-            <div className="text-xs text-stone-500">请求头</div>
-            <div className="break-all font-mono text-xs text-stone-800">Authorization: Bearer {displayKey}</div>
-          </div>
+          {[
+            { label: "服务地址", value: serviceBaseUrl },
+            { label: "Base URL（OpenAI）", value: openAIBaseUrl },
+            { label: "API Key", value: displayKey },
+            { label: "请求头", value: `Authorization: Bearer ${displayKey}` },
+          ].map((item) => (
+            <div key={item.label} className="space-y-1 rounded-2xl border border-border bg-field/50 px-4 py-3">
+              <div className="text-xs text-muted-foreground">{item.label}</div>
+              <div className="font-mono text-xs break-all text-foreground">{item.value}</div>
+            </div>
+          ))}
         </div>
 
         <div className="space-y-2">
-          <div className="text-xs font-medium text-stone-600">常用模型，也可请求 /v1/models 获取</div>
+          <div className="text-[13px] font-medium text-foreground/80">常用模型，也可请求 /v1/models 获取</div>
           <div className="flex flex-wrap gap-2">
             {usableModels.map((model) => (
-              <span key={model} className="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs text-stone-700">{model}</span>
+              <span key={model} className="rounded-lg border border-border bg-field px-2 py-1 font-mono text-xs text-foreground/80">{model}</span>
             ))}
           </div>
         </div>
@@ -302,33 +307,37 @@ export function ApiDocsCard() {
         <div className="space-y-3">
           {docs.map((item) => {
             const Icon = item.icon;
+            const example = item.example(openAIBaseUrl, displayKey);
             return (
-              <details key={item.path} className="group rounded-xl border border-stone-200 bg-white px-4 py-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+              <details key={item.path} className="group overflow-hidden rounded-2xl border border-border bg-field/50">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-accent/60">
                   <span className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-600">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
                       <Icon className="size-4" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-stone-900">{item.title}</span>
-                      <span className="mt-1 block truncate font-mono text-xs text-stone-500">{item.method} {item.path}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">{item.title}</span>
+                        <Badge variant={methodBadgeVariant(item.method)}>{item.method}</Badge>
+                      </span>
+                      <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{item.path}</span>
                     </span>
                   </span>
-                  <ChevronDown className="size-4 shrink-0 text-stone-400 transition group-open:rotate-180" />
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                 </summary>
 
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4 px-4 pt-2 pb-4 lg:grid-cols-2">
                   <div className="space-y-2">
-                    <h3 className="text-xs font-semibold text-stone-700">输入参数</h3>
+                    <h3 className="text-[15px] font-semibold tracking-tight">输入参数</h3>
                     <ParamTable rows={item.input} />
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xs font-semibold text-stone-700">输出参数</h3>
+                    <h3 className="text-[15px] font-semibold tracking-tight">输出参数</h3>
                     <ParamTable rows={item.output} />
                   </div>
                   <div className="space-y-2 lg:col-span-2">
-                    <h3 className="text-xs font-semibold text-stone-700">调用示例</h3>
-                    <pre className="overflow-auto whitespace-pre-wrap break-all rounded-xl bg-stone-950 px-3 py-3 text-xs leading-5 text-stone-100">{item.example(openAIBaseUrl, displayKey)}</pre>
+                    <h3 className="text-[15px] font-semibold tracking-tight">调用示例</h3>
+                    <pre className="overflow-auto rounded-xl border border-border bg-field p-4 font-mono text-xs leading-6 whitespace-pre-wrap break-all text-foreground/80">{example}</pre>
                   </div>
                 </div>
               </details>

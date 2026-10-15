@@ -344,7 +344,7 @@ export function ImageLightbox({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className="fixed inset-0 z-50 flex items-center justify-center outline-none"
           onPointerDownOutside={(e) => e.preventDefault()}
@@ -355,24 +355,24 @@ export function ImageLightbox({
 
           <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-10 flex items-center gap-2">
             {current.sizeLabel || current.dimensions ? (
-              <span className="rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90">
+              <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/90">
                 {[current.sizeLabel, current.dimensions].filter(Boolean).join(" · ")}
               </span>
             ) : null}
             {images.length > 1 && (
-              <span className="rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90">
+              <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/90">
                 {currentIndex + 1} / {images.length}
               </span>
             )}
             <button
               type="button"
               onClick={handleDownload}
-              className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 transition hover:bg-black/70"
+              className="inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
               aria-label="下载图片"
             >
               <Download className="size-4" />
             </button>
-            <DialogPrimitive.Close className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 transition hover:bg-black/70">
+            <DialogPrimitive.Close className="inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20">
               <X className="size-4" />
               <span className="sr-only">关闭</span>
             </DialogPrimitive.Close>
@@ -382,7 +382,7 @@ export function ImageLightbox({
             <button
               type="button"
               onClick={goPrev}
-              className="absolute left-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60"
+              className="absolute left-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
               aria-label="上一张"
             >
               <ChevronLeft className="size-5" />
@@ -421,7 +421,7 @@ export function ImageLightbox({
             <button
               type="button"
               onClick={goNext}
-              className="absolute right-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60"
+              className="absolute right-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
               aria-label="下一张"
             >
               <ChevronRight className="size-5" />

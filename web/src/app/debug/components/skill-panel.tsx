@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Download } from "lucide-react";
+import { Copy, Download, FileCode2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -142,24 +142,29 @@ ${skillEn}
   return (
     <section className="grid items-stretch gap-4 lg:grid-cols-2">
       {versions.map((item) => (
-        <div key={item.title} className="flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/[0.03]">
-            <div>
-              <h2 className="font-medium text-slate-900 dark:text-slate-100">{item.title}</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{item.desc}</p>
+        <div key={item.title} className="glass flex flex-col overflow-hidden rounded-[22px]">
+          <div className="flex items-start justify-between gap-3 border-b border-border p-5">
+            <div className="flex min-w-0 gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                <FileCode2 className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-semibold text-foreground">{item.title}</h2>
+                <p className="mt-1 text-[13px] text-muted-foreground">{item.desc}</p>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" className="cursor-pointer" onClick={() => downloadSkill(item.skill)}>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" variant="outline" onClick={() => downloadSkill(item.skill)}>
                 <Download />
                 下载
               </Button>
-              <Button size="sm" className="cursor-pointer" onClick={() => void copyText(item.prompt)}>
+              <Button size="sm" onClick={() => void copyText(item.prompt)}>
                 <Copy />
                 复制
               </Button>
             </div>
           </div>
-          <pre className="flex-1 whitespace-pre-wrap p-4 font-mono text-sm leading-6">
+          <pre className="min-h-0 flex-1 overflow-x-auto whitespace-pre-wrap p-5 font-mono text-xs leading-5 text-foreground/80">
             {item.prompt}
           </pre>
         </div>

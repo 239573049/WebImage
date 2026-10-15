@@ -5,7 +5,9 @@ import type { ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Clock3, FileArchive, FileText, History, ImagePlus, LoaderCircle, Pencil, Play, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,7 +36,7 @@ const DRAFT_ID = "__draft__";
 const taskIdOf = (task: EditableFileTask | null | undefined) => task?.taskId || task?.id || "";
 const isRunning = (task: EditableFileTask | null | undefined) => task?.status === "queued" || task?.status === "running";
 const statusText = (status: string) => ({ queued: "排队中", running: "生成中", success: "已完成", error: "失败" }[status] || status);
-const statusClass = (status: string) => status === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300" : status === "error" ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300" : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300";
+const statusVariant = (status: string) => status === "success" ? "success" : status === "error" ? "danger" : "warning";
 const formatElapsed = (seconds: number) => `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 const titleOfPrompt = (prompt: string, fallback: string) => prompt.trim().replace(/\s+/g, " ").slice(0, 24) || fallback;
 const createClientTaskId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -75,13 +77,13 @@ const fileNameOf = (url: string) => {
 function ResultFile({ href, icon, label }: { href?: string; icon: ReactNode; label: string }) {
   if (!href) return null;
   return (
-    <div className="flex items-center gap-3 rounded-md border border-stone-200 bg-stone-50/80 px-3 py-3 dark:border-white/10 dark:bg-white/[0.04]">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-white text-stone-700 shadow-sm dark:bg-white/10 dark:text-stone-200">
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-field/50 px-3 py-3">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{label}</div>
-        <div className="truncate text-xs text-stone-500 dark:text-stone-400">{fileNameOf(href)}</div>
+        <div className="text-sm font-semibold text-foreground">{label}</div>
+        <div className="truncate text-xs text-muted-foreground">{fileNameOf(href)}</div>
       </div>
       <Button size="sm" asChild>
         <a href={href} target="_blank" rel="noreferrer">下载</a>
@@ -272,31 +274,31 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
 
   return (
     <>
-    <div className="grid h-full min-h-0 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm dark:border-white/10 dark:bg-stone-950 lg:grid-cols-[288px_420px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-b border-stone-200 bg-stone-50/70 dark:border-white/10 dark:bg-white/[0.02] lg:border-r lg:border-b-0">
-        <div className="flex h-14 items-center justify-between border-b border-stone-200 px-4 dark:border-white/10">
-          <div className="flex items-center gap-2 text-sm font-semibold text-stone-950 dark:text-stone-50">
+    <div className="grid h-full min-h-0 gap-4 overflow-hidden p-4 lg:grid-cols-[288px_420px_minmax(0,1fr)]">
+      <aside className="glass flex min-h-0 flex-col overflow-hidden rounded-[22px]">
+        <div className="flex h-14 items-center justify-between border-b border-border px-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <History className="size-4" />
             历史记录
           </div>
           <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={createDraft}>
+            <Button size="icon-sm" variant="ghost" onClick={createDraft} title="新建任务" aria-label="新建任务">
               <Plus />
             </Button>
-            <Button size="sm" variant="ghost" onClick={refreshAll} disabled={polling}>
+            <Button size="icon-sm" variant="ghost" onClick={refreshAll} disabled={polling} title="刷新" aria-label="刷新">
               {polling ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm({ type: "all", ids: tasks.filter((task) => task.kind === kind).map(taskIdOf).filter(Boolean) })} disabled={!visibleTasks.length}>
+            <Button size="icon-sm" variant="ghost" title="清空历史记录" aria-label="清空历史记录" onClick={() => setDeleteConfirm({ type: "all", ids: tasks.filter((task) => task.kind === kind).map(taskIdOf).filter(Boolean) })} disabled={!visibleTasks.length}>
               <Trash2 />
             </Button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-2">
+        <div className="min-h-0 flex-1 space-y-1.5 overflow-auto p-2">
           {visibleTasks.length ? visibleTasks.map((task) => {
             const id = taskIdOf(task);
             const taskTitle = drafts[id]?.title || titleOfPrompt(task.prompt_preview || drafts[id]?.prompt || "", task.kind?.toUpperCase() || title);
             return (
-              <div key={id} className={cn("group mb-2 rounded-md border px-3 py-2.5 transition", selectedId === id ? "border-stone-950 bg-white shadow-sm dark:border-white/60 dark:bg-white/10" : "border-transparent bg-transparent hover:border-stone-200 hover:bg-white dark:hover:border-white/10 dark:hover:bg-white/[0.05]")}>
+              <div key={id} className={cn("group rounded-xl border px-3 py-2.5 transition-colors", selectedId === id ? "border-primary bg-primary/10" : "border-transparent hover:bg-accent/60")}>
                 <div className="flex items-start gap-2">
                   <button type="button" onClick={() => selectTask(id)} className="min-w-0 flex-1 text-left">
                     <div className="flex min-w-0 items-center justify-between gap-2">
@@ -310,26 +312,26 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
                             if (event.key === "Escape") setRenamingId("");
                           }}
                           onClick={(event) => event.stopPropagation()}
-                          className="min-w-0 flex-1 rounded border border-stone-300 bg-white px-2 py-1 text-sm font-semibold outline-none focus:border-stone-500 dark:border-white/15 dark:bg-stone-950"
+                          className="min-w-0 flex-1 rounded-lg border border-input bg-field px-2 py-1 text-sm font-medium text-foreground outline-none focus-visible:border-primary/70"
                           autoFocus
                         />
                       ) : (
-                        <span className="truncate text-sm font-semibold text-stone-950 dark:text-stone-50">{taskTitle}</span>
+                        <span className="truncate text-sm font-medium text-foreground">{taskTitle}</span>
                       )}
-                      <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[11px]", statusClass(task.status))}>{statusText(task.status)}</span>
+                      <Badge variant={statusVariant(task.status)} className="shrink-0">{statusText(task.status)}</Badge>
                     </div>
-                    <div className="mt-2 flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <Clock3 className="size-3.5" />
                       <span className="tabular-nums">{formatElapsed(elapsedOf(task))}</span>
                       <span className="truncate">{task.created_at || id}</span>
                     </div>
-                    {(task.prompt_preview || drafts[id]?.prompt) ? <div className="mt-2 line-clamp-2 text-xs leading-5 text-stone-500 dark:text-stone-400">{task.prompt_preview || drafts[id]?.prompt}</div> : null}
+                    {(task.prompt_preview || drafts[id]?.prompt) ? <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{task.prompt_preview || drafts[id]?.prompt}</div> : null}
                   </button>
-                  <div className="flex shrink-0 opacity-100 sm:opacity-0 sm:transition sm:group-hover:opacity-100">
-                    <Button size="sm" variant="ghost" onClick={() => startRename(id)} className="size-7 px-0">
+                  <div className="flex shrink-0 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+                    <Button size="icon-sm" variant="ghost" onClick={() => startRename(id)}>
                       <Pencil className="size-3.5" />
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm({ type: "one", id })} className="size-7 px-0 text-stone-400 hover:text-rose-500">
+                    <Button size="icon-sm" variant="ghost" onClick={() => setDeleteConfirm({ type: "one", id })} className="text-destructive hover:text-destructive">
                       <Trash2 className="size-3.5" />
                     </Button>
                   </div>
@@ -337,14 +339,14 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
               </div>
             );
           }) : (
-            <div className="flex h-full items-center justify-center text-sm text-stone-400 dark:text-stone-500">暂无记录</div>
+            <EmptyState icon={<History />} title="暂无记录" className="h-full py-0" />
           )}
         </div>
       </aside>
 
-      <section className="flex min-h-0 flex-col border-b border-stone-200 dark:border-white/10 lg:border-r lg:border-b-0">
-        <div className="flex h-14 items-center justify-between border-b border-stone-200 px-5 dark:border-white/10">
-          <h2 className="text-sm font-semibold text-stone-950 dark:text-stone-50">{title}</h2>
+      <section className="glass flex min-h-0 flex-col overflow-hidden rounded-[22px]">
+        <div className="flex h-14 items-center justify-between border-b border-border px-5">
+          <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
           <Button size="sm" onClick={() => void submit()} disabled={submitting || running}>
             {submitting ? <LoaderCircle className="animate-spin" /> : <Play />}
             生成
@@ -352,23 +354,23 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-auto p-5">
           <div className="space-y-2">
-            <Label htmlFor={`${endpoint}-prompt`} className="text-xs font-semibold text-stone-700 dark:text-stone-300">需求</Label>
-            <Textarea id={`${endpoint}-prompt`} value={prompt} onChange={(event) => setPrompt(event.target.value)} className="min-h-56 rounded-md border-stone-200 bg-white text-sm leading-6 shadow-none dark:border-white/10 dark:bg-white/[0.03]" />
+            <Label htmlFor={`${endpoint}-prompt`} className="text-sm font-medium text-muted-foreground">需求</Label>
+            <Textarea id={`${endpoint}-prompt`} value={prompt} onChange={(event) => setPrompt(event.target.value)} className="min-h-56 text-sm leading-6" />
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-stone-700 dark:text-stone-300">参考图</Label>
-              <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-500 dark:bg-white/10 dark:text-stone-400">{images.length}</span>
+              <Label className="text-sm font-medium text-muted-foreground">参考图</Label>
+              <Badge variant="secondary">{images.length}</Badge>
             </div>
-            <label className="group flex h-24 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-stone-300 bg-stone-50 text-sm font-medium text-stone-600 transition hover:border-stone-950 hover:bg-white dark:border-white/15 dark:bg-white/[0.03] dark:text-stone-300 dark:hover:border-white/50">
-              <ImagePlus className="size-4 transition group-hover:scale-110" />
+            <label className="group flex h-24 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-field text-sm font-medium text-foreground/80 transition-colors hover:border-primary hover:bg-field-hover">
+              <ImagePlus className="size-4 transition-transform group-hover:scale-110" />
               上传图片
               <Input type="file" accept="image/*" multiple onChange={(event) => void appendFiles(event.target.files)} className="hidden" />
             </label>
             {images.length ? (
               <div className="grid grid-cols-4 gap-2">
                 {images.slice(0, 8).map((src, index) => (
-                  <img key={`${src.slice(0, 28)}-${index}`} src={src} alt="" className="aspect-square rounded-md border border-stone-200 object-cover dark:border-white/10" />
+                  <img key={`${src.slice(0, 28)}-${index}`} src={src} alt="" className="aspect-square rounded-xl border border-border object-cover" />
                 ))}
               </div>
             ) : null}
@@ -379,54 +381,54 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
               清空图片
             </Button>
           </div>
-          {error ? <div className="flex gap-2 rounded-md border border-rose-200 bg-rose-50/70 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error}</div> : null}
+          {error ? <div className="flex gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error}</div> : null}
         </div>
       </section>
 
-      <section className="flex min-h-0 flex-col">
-        <div className="flex h-14 items-center justify-between border-b border-stone-200 px-5 dark:border-white/10">
-          <h2 className="text-sm font-semibold text-stone-950 dark:text-stone-50">生成状态</h2>
-          {selectedTask ? <span className={cn("rounded-full border px-2.5 py-1 text-xs", statusClass(selectedTask.status))}>{statusText(selectedTask.status)}</span> : null}
+      <section className="glass flex min-h-0 flex-col overflow-hidden rounded-[22px]">
+        <div className="flex h-14 items-center justify-between border-b border-border px-5">
+          <h2 className="text-sm font-medium text-muted-foreground">生成状态</h2>
+          {selectedTask ? <Badge variant={statusVariant(selectedTask.status)}>{statusText(selectedTask.status)}</Badge> : null}
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-5">
           {selectedTask ? (
             <div className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-[150px_150px_minmax(0,1fr)]">
-                <div className="rounded-md border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <div className="text-xs text-stone-500 dark:text-stone-400">状态</div>
-                  <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-stone-950 dark:text-stone-50">
-                    {selectedTask.status === "success" ? <CheckCircle2 className="size-4 text-emerald-500" /> : selectedTask.status === "error" ? <XCircle className="size-4 text-rose-500" /> : <LoaderCircle className="size-4 animate-spin text-amber-500" />}
+                <div className="rounded-2xl border border-border bg-field/50 p-4">
+                  <div className="text-xs text-muted-foreground">状态</div>
+                  <div className="mt-2 flex items-center gap-2 text-sm font-medium text-foreground">
+                    {selectedTask.status === "success" ? <CheckCircle2 className="size-4 text-success" /> : selectedTask.status === "error" ? <XCircle className="size-4 text-destructive" /> : <LoaderCircle className="size-4 animate-spin text-warning" />}
                     {statusText(selectedTask.status)}
                   </div>
                 </div>
-                <div className="rounded-md border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <div className="text-xs text-stone-500 dark:text-stone-400">已执行</div>
-                  <div className="mt-2 text-2xl font-semibold tabular-nums text-stone-950 dark:text-stone-50">{formatElapsed(elapsedOf(selectedTask))}</div>
+                <div className="rounded-2xl border border-border bg-field/50 p-4">
+                  <div className="text-xs text-muted-foreground">已执行</div>
+                  <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-foreground">{formatElapsed(elapsedOf(selectedTask))}</div>
                 </div>
-                <div className="rounded-md border border-stone-200 bg-stone-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <div className="text-xs text-stone-500 dark:text-stone-400">Task ID</div>
-                  <div className="mt-2 truncate font-mono text-xs text-stone-700 dark:text-stone-300">{taskIdOf(selectedTask)}</div>
+                <div className="rounded-2xl border border-border bg-field/50 p-4">
+                  <div className="text-xs text-muted-foreground">Task ID</div>
+                  <div className="mt-2 truncate font-mono text-xs text-foreground/80">{taskIdOf(selectedTask)}</div>
                 </div>
               </div>
 
               {selectedTask.result ? (
-                <div className="space-y-3 rounded-md border border-stone-200 bg-white p-4 dark:border-white/10 dark:bg-white/[0.03]">
-                  <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">生成结果</div>
+                <div className="space-y-3 rounded-2xl border border-border bg-field/50 p-4">
+                  <div className="text-sm font-medium text-muted-foreground">生成结果</div>
                   <ResultFile href={selectedTask.result.primary_url} icon={<FileText className="size-4" />} label={kind === "ppt" ? "PPT 文件" : "PSD 文件"} />
                   <ResultFile href={selectedTask.result.zip_url} icon={<FileArchive className="size-4" />} label="素材包" />
                 </div>
               ) : null}
 
-              {selectedTask.error ? <div className="rounded-md border border-rose-200 bg-rose-50/70 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300">{selectedTask.error}</div> : null}
+              {selectedTask.error ? <div className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{selectedTask.error}</div> : null}
             </div>
           ) : (
-            <div className="flex h-full min-h-80 items-center justify-center text-sm text-stone-400 dark:text-stone-500">暂无任务</div>
+            <EmptyState icon={<FileText />} title="暂无任务" className="h-full min-h-80 py-0" />
           )}
         </div>
       </section>
     </div>
     <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-      <DialogContent className="rounded-xl" showCloseButton={false}>
+      <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{deleteConfirm?.type === "all" ? "清空历史记录" : "删除历史记录"}</DialogTitle>
           <DialogDescription>
@@ -434,7 +436,7 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setDeleteConfirm(null)}>取消</Button>
+          <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>取消</Button>
           <Button variant="destructive" onClick={confirmDelete}>确认删除</Button>
         </DialogFooter>
       </DialogContent>

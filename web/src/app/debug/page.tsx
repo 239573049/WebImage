@@ -3,6 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 
 import { PageEnter } from "@/components/page-enter";
+import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
@@ -32,15 +33,18 @@ export default function DebugPage() {
   }
 
   return (
-    <PageEnter className="flex h-full min-h-0 w-full flex-col">
+    <PageEnter className="flex h-full min-h-0 w-full flex-col gap-4">
+      <PageHeader title="调试" />
       <Tabs defaultValue="skills" className="flex h-full min-h-0 w-full flex-col gap-4">
-        <TabsList variant="line" className="w-full shrink-0">
-          {tabs.map(({ value, title }) => (
-            <TabsTrigger key={value} value={value}>
-              {title}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="hide-scrollbar max-w-full shrink-0 overflow-x-auto">
+          <TabsList className="w-fit">
+            {tabs.map(({ value, title }) => (
+              <TabsTrigger key={value} value={value}>
+                {title}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
         <TabsContent value="skills" className="min-h-0 overflow-y-auto">
           <SkillPanel />
         </TabsContent>

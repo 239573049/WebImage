@@ -39,7 +39,7 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
       <button
         type="button"
         className={cn(
-          "relative px-1 py-1 text-[11px] font-medium text-stone-500 transition hover:text-stone-900 dark:text-stone-300 dark:hover:text-white",
+          "relative rounded-lg px-1.5 py-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/40",
           className,
         )}
         onClick={openReleaseModal}
@@ -47,11 +47,11 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
       >
         v{webConfig.appVersion}
         {hasNewVersion ? (
-          <span className="absolute -top-1 -right-1 size-2 rounded-full bg-emerald-500" />
+          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-success" />
         ) : null}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="w-[min(94vw,680px)] rounded-2xl">
+        <DialogContent className="w-[min(94vw,680px)]">
           <DialogHeader>
             <DialogTitle>版本更新</DialogTitle>
           </DialogHeader>
@@ -63,7 +63,7 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
               action={
                 <button
                   type="button"
-                  className="text-[11px] text-stone-400 underline-offset-2 hover:text-stone-700 hover:underline dark:hover:text-stone-200"
+                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                   onClick={() => void checkLatestRelease(true)}
                 >
                   {checking ? "检查中..." : "检查更新"}
@@ -73,18 +73,18 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
           </div>
           <div className="max-h-[56vh] space-y-5 overflow-y-auto pr-1">
             {releases.map((release) => (
-              <div key={release.version} className="border-l border-stone-200 pl-4 dark:border-white/10">
+              <div key={release.version} className="border-l border-border pl-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-stone-950 dark:text-stone-100">
+                  <span className="text-sm font-semibold text-foreground">
                     {release.version === "Unreleased" ? "未发布" : release.version}
                   </span>
-                  <span className="text-xs text-stone-500 dark:text-stone-400">{release.date}</span>
+                  <span className="text-xs text-muted-foreground">{release.date}</span>
                   {release.version === latestVersion ? <Badge variant="success">最新</Badge> : null}
                   {release.version === webConfig.appVersion ? <Badge variant="outline">当前</Badge> : null}
                 </div>
                 <div className="mt-2 space-y-1.5">
                   {release.items.map((item, index) => (
-                    <div key={index} className="flex items-start gap-2 text-sm leading-6 text-stone-700 dark:text-stone-300">
+                    <div key={index} className="flex items-start gap-2 text-sm leading-6 text-foreground/80">
                       <Badge variant={typeVariant(item.type)} className="mt-0.5 shrink-0">
                         {item.type}
                       </Badge>
@@ -116,12 +116,12 @@ function VersionCard({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-stone-200 bg-white/55 p-3 dark:border-white/10 dark:bg-white/5">
+    <div className="rounded-2xl border border-border bg-field p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs text-stone-500 dark:text-stone-400">{label}</div>
+        <div className="text-xs text-muted-foreground">{label}</div>
         {action}
       </div>
-      <div className="mt-1 text-base font-semibold text-stone-950 dark:text-stone-100">{value}</div>
+      <div className="mt-1 text-base font-semibold text-foreground">{value}</div>
     </div>
   );
 }

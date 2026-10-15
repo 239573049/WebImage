@@ -81,7 +81,7 @@ function SettingsPageContent() {
       <SettingsDataController />
       <SettingsHeader />
       <Tabs defaultValue="basic" className="space-y-4">
-        <div className="sticky top-3 z-20 overflow-x-auto rounded-xl border border-white/80 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
+        <div className="hide-scrollbar overflow-x-auto">
           <TabsList variant="line" className="min-w-max justify-start">
             {settingsTabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className="px-4">
@@ -127,7 +127,7 @@ export default function SettingsPage() {
   if (isCheckingAuth || !session || session.role !== "admin") {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-stone-400" />
+        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
       </div>
     );
   }

@@ -7,7 +7,7 @@ function Field({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function FieldLabel({ className, ...props }: React.ComponentProps<"label">) {
-  return <label className={cn("text-sm font-medium text-stone-700", className)} {...props} />;
+  return <label className={cn("text-[13px] font-medium text-foreground/80", className)} {...props} />;
 }
 
 export { Field, FieldLabel };

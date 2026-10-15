@@ -4,131 +4,227 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-violet: var(--violet);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-field: var(--field);
+  --color-field-hover: var(--field-hover);
+  --color-segment: var(--segment);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  /* 圆角整体比默认刻度大一档：Apple 的"连续圆角"观感 */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+  --radius-4xl: 2.25rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* 浅色：macOS Sonoma 风格 —— 柔和的彩色光晕 + 白色半透明面板           */
+/* ------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+
+  --background: #f3f4f8;
+  --foreground: #1d1d1f;
+  --card: rgb(255 255 255 / 0.72);
+  --card-foreground: #1d1d1f;
+  --popover: rgb(255 255 255 / 0.98);
+  --popover-foreground: #1d1d1f;
+  --primary: #007aff;
+  --primary-foreground: #ffffff;
+  --secondary: rgb(120 120 128 / 0.14);
+  --secondary-foreground: #1d1d1f;
+  --muted: rgb(120 120 128 / 0.09);
+  --muted-foreground: rgb(60 60 67 / 0.62);
+  --accent: rgb(0 0 0 / 0.05);
+  --accent-foreground: #1d1d1f;
+  --destructive: #e5352b;
+  --success: #1f9d4a;
+  --warning: #c76a00;
+  --info: #0a84c6;
+  --violet: #8a3fd1;
+  --border: rgb(60 60 67 / 0.13);
+  --input: rgb(60 60 67 / 0.2);
+  --ring: rgb(0 122 255 / 0.5);
+  --field: rgb(255 255 255 / 0.7);
+  --field-hover: rgb(255 255 255 / 0.95);
+  --segment: #ffffff;
+
+  --sidebar: rgb(255 255 255 / 0.74);
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-border: rgb(60 60 67 / 0.12);
+
+  --glass-bg: linear-gradient(180deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.68));
+  --glass-bg-strong: linear-gradient(180deg, rgb(255 255 255 / 0.97), rgb(255 255 255 / 0.88));
+  --glass-border: rgb(60 60 67 / 0.1);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), 0 1px 2px rgb(16 24 40 / 0.05),
+    0 14px 32px -18px rgb(16 24 40 / 0.18);
+  --chrome-bg: linear-gradient(180deg, rgb(255 255 255 / 0.8), rgb(246 247 252 / 0.66));
+  --scrollbar-thumb: rgb(60 60 67 / 0.28);
+
+  --page-bg:
+    radial-gradient(1000px 680px at -6% -10%, rgb(0 122 255 / 0.17), transparent 62%),
+    radial-gradient(860px 720px at 108% 108%, rgb(255 149 0 / 0.13), transparent 60%),
+    radial-gradient(800px 560px at 108% -8%, rgb(175 82 222 / 0.11), transparent 60%), #f3f4f8;
+}
+
+/* ------------------------------------------------------------------ */
+/* 深色：visionOS / macOS 深色 —— 蓝紫光晕 + 低对比半透明玻璃            */
+/* ------------------------------------------------------------------ */
+.dark {
+  color-scheme: dark;
+
+  --background: #0a0b10;
+  --foreground: rgb(255 255 255 / 0.94);
+  --card: rgb(255 255 255 / 0.06);
+  --card-foreground: rgb(255 255 255 / 0.94);
+  --popover: rgb(30 31 38 / 0.98);
+  --popover-foreground: rgb(255 255 255 / 0.94);
+  --primary: #0a84ff;
+  --primary-foreground: #ffffff;
+  --secondary: rgb(120 120 128 / 0.26);
+  --secondary-foreground: rgb(255 255 255 / 0.92);
+  --muted: rgb(120 120 128 / 0.16);
+  --muted-foreground: rgb(235 235 245 / 0.6);
+  --accent: rgb(255 255 255 / 0.08);
+  --accent-foreground: rgb(255 255 255 / 0.96);
+  --destructive: #ff453a;
+  --success: #32d74b;
+  --warning: #ff9f0a;
+  --info: #64d2ff;
+  --violet: #bf5af2;
+  --border: rgb(255 255 255 / 0.09);
+  --input: rgb(255 255 255 / 0.13);
+  --ring: rgb(10 132 255 / 0.62);
+  --field: rgb(255 255 255 / 0.06);
+  --field-hover: rgb(255 255 255 / 0.1);
+  --segment: rgb(255 255 255 / 0.14);
+
+  --sidebar: rgb(255 255 255 / 0.06);
+  --sidebar-foreground: rgb(255 255 255 / 0.94);
+  --sidebar-border: rgb(255 255 255 / 0.1);
+
+  --glass-bg: linear-gradient(180deg, rgb(255 255 255 / 0.085), rgb(255 255 255 / 0.045));
+  --glass-bg-strong: linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.085));
+  --glass-border: rgb(255 255 255 / 0.1);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.32);
+  --chrome-bg: linear-gradient(180deg, rgb(22 52 108 / 0.55), rgb(70 34 98 / 0.5));
+  --scrollbar-thumb: rgb(255 255 255 / 0.24);
+
+  --page-bg:
+    radial-gradient(1200px 760px at -8% -12%, rgb(10 132 255 / 0.4), transparent 62%),
+    radial-gradient(960px 800px at -10% 108%, rgb(191 90 242 / 0.34), transparent 60%),
+    radial-gradient(760px 520px at 108% -8%, rgb(94 92 230 / 0.16), transparent 60%), #0a0b10;
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-w: 14.5rem;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+[data-sidebar="collapsed"] {
+  --sidebar-w: 4.5rem;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
   }
+
+  html {
+    background: var(--page-bg);
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
   html,
   body {
-    background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%);
     overscroll-behavior: none;
   }
 
-  .dark,
-  .dark body {
-    background: radial-gradient(circle at top left, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgba(12, 10, 9, 1) 100%);
+  body {
+    font-family: var(--font-sans);
+    color: var(--foreground);
+    letter-spacing: -0.006em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  body {
-    @apply text-foreground;
+  ::selection {
+    background: rgb(10 132 255 / 0.32);
+  }
+
+  button,
+  [role="button"],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  /* 内容卡片：半透明渐变 + 1px 高光描边。不使用 backdrop-filter —— 背景是静态渐变，模糊与否肉眼无差别，
+     却会让每一次滚动/重绘都多一道 GPU 模糊。 */
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* 悬浮外壳（侧栏、移动端顶栏）：面积小且位置固定，才值得上实时模糊 */
+  .glass-chrome {
+    background: var(--chrome-bg);
+    border: 1px solid var(--sidebar-border);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    backdrop-filter: blur(28px) saturate(1.6);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-chrome {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: var(--popover);
+    }
   }
 }
 
@@ -143,105 +239,18 @@
   }
 }
 
-:root {
-  /* 移动端顶栏高度；桌面端导航移到左侧后为 0 */
-  --app-topbar-h: 3rem;
-  --sidebar-w: 14rem;
-}
-
-[data-sidebar="collapsed"] {
-  --sidebar-w: 3.75rem;
-}
-
-@media (min-width: 640px) {
-  :root {
-    --app-topbar-h: 0rem;
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 
-.dark .bg-white,
-.dark .bg-white\/85,
-.dark .bg-white\/90,
-.dark .bg-white\/95,
-.dark .hover\:bg-white:hover {
-  background-color: rgb(28 25 23 / 0.94) !important;
-}
-
-.dark .bg-white\/80,
-.dark .bg-white\/70,
-.dark .bg-white\/60 {
-  background-color: rgb(41 37 36 / 0.78) !important;
-}
-
-.dark .bg-stone-50,
-.dark .bg-stone-50\/70,
-.dark .hover\:bg-stone-50\/70:hover,
-.dark .bg-stone-100,
-.dark .hover\:bg-stone-100:hover,
-.dark .hover\:bg-stone-200:hover {
-  background-color: rgb(41 37 36 / 0.86) !important;
-}
-
-.dark .bg-stone-200 {
-  background-color: rgb(68 64 60 / 0.9) !important;
-}
-
-.dark .border-white,
-.dark .border-white\/80,
-.dark .border-white\/70,
-.dark .border-stone-100,
-.dark .border-stone-100\/80,
-.dark .border-stone-100\/50,
-.dark .border-stone-200,
-.dark .border-stone-200\/70,
-.dark .border-stone-300,
-.dark .focus-visible\:border-stone-300:focus-visible {
-  border-color: rgb(255 255 255 / 0.11) !important;
-}
-
-.dark .text-stone-950,
-.dark .text-stone-900,
-.dark .text-stone-800 {
-  color: rgb(250 250 249) !important;
-}
-
-.dark .text-stone-700,
-.dark .text-stone-600 {
-  color: rgb(214 211 209) !important;
-}
-
-.dark .text-stone-500,
-.dark .text-stone-400 {
-  color: rgb(168 162 158) !important;
-}
-
-.dark .text-stone-300 {
-  color: rgb(214 211 209) !important;
-}
-
-.dark .placeholder\:text-stone-400::placeholder,
-.dark .placeholder\:text-muted-foreground::placeholder {
-  color: rgb(120 113 108) !important;
-}
-
-.dark .hover\:text-stone-700:hover,
-.dark .hover\:text-stone-800:hover,
-.dark .hover\:text-stone-900:hover {
-  color: rgb(250 250 249) !important;
-}
-
-.dark .shadow-sm,
-.dark .shadow-xs,
-.dark [class*="shadow-"] {
-  box-shadow: none !important;
-}
-
-@keyframes grow {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-
-::view-transition-old(root), ::view-transition-new(root) {
-    animation: none;
-    mix-blend-mode: normal;
+/* 主题切换用 View Transition 做圆形扩散，关掉浏览器默认的交叉淡入 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }

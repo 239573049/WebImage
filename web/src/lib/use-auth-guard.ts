@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getValidatedAuthSession } from "@/lib/auth-session";
+import { getValidatedAuthSession, peekValidatedAuthSession } from "@/lib/auth-session";
 import {
   getDefaultRouteForRole,
   type AuthRole,
@@ -17,9 +17,19 @@ type UseAuthGuardResult = {
 
 export function useAuthGuard(allowedRoles?: AuthRole[]): UseAuthGuardResult {
   const router = useRouter();
-  const [session, setSession] = useState<StoredAuthSession | null>(null);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const allowedRolesKey = (allowedRoles || []).join(",");
+  // 路由切换时如果刚校验过登录态，首帧就直接渲染页面，不再先闪一次加载态；
+  // 首次加载（缓存为空）时仍与服务端预渲染的加载态保持一致，不会产生 hydration 差异。
+  const [initialSession] = useState<StoredAuthSession | null>(() => {
+    const cached = peekValidatedAuthSession();
+    if (!cached) {
+      return null;
+    }
+    const roleList = allowedRolesKey ? (allowedRolesKey.split(",") as AuthRole[]) : [];
+    return roleList.length === 0 || roleList.includes(cached.role) ? cached : null;
+  });
+  const [session, setSession] = useState<StoredAuthSession | null>(initialSession);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(initialSession === null);
 
   useEffect(() => {
     let active = true;

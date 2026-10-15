@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { Activity, CheckCircle2, Timer, XCircle } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { fetchAiMetrics, type AiMetrics } from "@/lib/api";
-import { easeOut, fadeUpItem, listItem, listStagger } from "@/lib/motion";
+import { easeOut } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const REFRESH_INTERVAL = 10_000;
@@ -40,38 +40,23 @@ function MetricCell({
   hint?: string;
   tone?: "success" | "danger";
 }) {
-  const reduceMotion = useReducedMotion();
-
   return (
-    <motion.div className="flex items-center gap-3 px-4 py-3" variants={reduceMotion ? undefined : fadeUpItem}>
-      <motion.span
+    <div className="flex items-center gap-3 px-4 py-3.5">
+      <span
         className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500 dark:bg-white/8 dark:text-stone-300",
-          tone === "success" && "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/12 dark:text-emerald-400",
-          tone === "danger" && "bg-rose-50 text-rose-600 dark:bg-rose-500/12 dark:text-rose-400",
+          "flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground",
+          tone === "success" && "bg-success/15 text-success",
+          tone === "danger" && "bg-destructive/15 text-destructive",
         )}
-        whileHover={reduceMotion ? undefined : { scale: 1.06, rotate: -3 }}
-        transition={easeOut}
       >
         {icon}
-      </motion.span>
+      </span>
       <div className="min-w-0">
-        <div className="text-[11px] tracking-wide text-stone-400 uppercase">{label}</div>
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div
-            key={value}
-            initial={reduceMotion ? false : { opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="truncate text-lg font-semibold text-stone-900 tabular-nums dark:text-stone-100"
-          >
-            {value}
-          </motion.div>
-        </AnimatePresence>
-        {hint ? <div className="truncate text-[11px] text-stone-400">{hint}</div> : null}
+        <div className="truncate text-xs text-muted-foreground">{label}</div>
+        <div className="truncate text-2xl font-semibold tracking-tight text-foreground tabular-nums">{value}</div>
+        {hint ? <div className="truncate text-xs text-muted-foreground">{hint}</div> : null}
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -131,14 +116,9 @@ export function RpmPanel() {
       animate={{ opacity: 1, y: 0 }}
       transition={easeOut}
     >
-      <Card className="overflow-hidden rounded-2xl border-white/80 bg-white/90 shadow-sm">
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <motion.div
-            className="grid divide-y divide-stone-100 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x"
-            initial="hidden"
-            animate="show"
-            variants={reduceMotion ? undefined : listStagger}
-          >
+          <div className="grid divide-y divide-border sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
             <MetricCell
               icon={<Activity className="size-4" />}
               label="RPM"
@@ -165,59 +145,39 @@ export function RpmPanel() {
               value={metrics ? `${(metrics.avg_duration_ms / 1000).toFixed(2)} s` : "-"}
               hint={`每 ${REFRESH_INTERVAL / 1000} 秒自动刷新`}
             />
-          </motion.div>
-          <div className="grid gap-4 border-t border-stone-100 px-4 py-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+          </div>
+          <div className="grid gap-4 border-t border-border px-4 py-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
             <div className="space-y-1">
-              <div className="flex items-center justify-between text-[11px] text-stone-400">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>最近 {TREND_MINUTES} 分钟调用趋势</span>
-                <span>峰值 {trendMax}</span>
+                <span className="tabular-nums">峰值 {trendMax}</span>
               </div>
               <svg viewBox="0 0 320 44" preserveAspectRatio="none" className="h-11 w-full" role="img" aria-label="调用趋势">
-                <motion.path
-                  d={area || undefined}
-                  className="fill-stone-900/8 dark:fill-white/10"
-                  initial={false}
-                  animate={{ opacity: area ? 1 : 0 }}
-                  transition={{ duration: 0.35 }}
-                />
-                <motion.path
-                  key={line}
+                <path d={area || undefined} className="fill-primary/10" />
+                <path
                   d={line || undefined}
                   fill="none"
                   strokeWidth={1.5}
-                  className="stroke-stone-900 dark:stroke-stone-100"
-                  initial={reduceMotion || !line ? false : { pathLength: 0, opacity: 0.4 }}
-                  animate={line ? { pathLength: 1, opacity: 1 } : { opacity: 0 }}
-                  transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                  className="stroke-primary"
                 />
               </svg>
             </div>
             <div className="space-y-1">
-              <div className="text-[11px] text-stone-400">按接口统计（当前窗口）</div>
-              {error ? <div className="text-xs text-rose-500">{error}</div> : null}
+              <div className="text-xs text-muted-foreground">按接口统计（当前窗口）</div>
+              {error ? <div className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
               {!error && metrics && metrics.by_endpoint.length === 0 ? (
-                <div className="text-xs text-stone-400">当前窗口内没有 AI 接口调用</div>
+                <div className="text-xs text-muted-foreground">当前窗口内没有 AI 接口调用</div>
               ) : null}
-              <motion.div
-                className="max-h-28 space-y-1 overflow-y-auto pr-1"
-                initial="hidden"
-                animate="show"
-                variants={reduceMotion ? undefined : listStagger}
-                key={metrics?.by_endpoint.map((item) => item.endpoint).join("|") || "empty"}
-              >
+              <div className="max-h-28 space-y-1 overflow-y-auto pr-1">
                 {metrics?.by_endpoint.map((item) => (
-                  <motion.div
-                    key={item.endpoint}
-                    variants={reduceMotion ? undefined : listItem}
-                    className="flex items-center justify-between gap-3 text-xs text-stone-500"
-                  >
-                    <span className="truncate font-mono text-stone-600 dark:text-stone-300">{item.endpoint}</span>
+                  <div key={item.endpoint} className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <span className="truncate font-mono text-foreground/80">{item.endpoint}</span>
                     <span className="shrink-0 tabular-nums">
                       {item.count} 次 · 失败 {item.failed} · {(item.avg_duration_ms / 1000).toFixed(2)} s
                     </span>
-                  </motion.div>
+                  </div>
                 ))}
-              </motion.div>
+              </div>
             </div>
           </div>
         </CardContent>

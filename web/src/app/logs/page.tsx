@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight, ImageIcon, LoaderCircle, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,16 +8,17 @@ import { DateRangeFilter } from "@/components/date-range-filter";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ImageThumbnail, getImageThumbnailUrl } from "@/components/image-thumbnail";
 import { PageEnter } from "@/components/page-enter";
+import { PageHeader } from "@/components/page-header";
 import { RpmPanel } from "@/components/rpm-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { deleteSystemLogs, fetchSystemLogs, type SystemLog } from "@/lib/api";
-import { fadeUpItem } from "@/lib/motion";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const LogType = {
@@ -60,7 +60,6 @@ function getStatus(item: SystemLog) {
 }
 
 function LogsContent() {
-  const reduceMotion = useReducedMotion();
   const [items, setItems] = useState<SystemLog[]>([]);
   const [type, setType] = useState<string>(LogType.Call);
   const [startDate, setStartDate] = useState("");
@@ -152,56 +151,51 @@ function LogsContent() {
   }, [type, startDate, endDate, pageSize]);
 
   return (
-    <PageEnter className="space-y-5">
-      <motion.div
-        className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
-        variants={reduceMotion ? undefined : fadeUpItem}
-      >
-        <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-stone-500 uppercase">Logs</div>
-          <h1 className="text-2xl font-semibold tracking-tight">日志管理</h1>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Select value={type} onValueChange={setType}>
-            <SelectTrigger className="h-10 w-[150px] rounded-xl border-stone-200 bg-white"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={LogType.Call}>调用日志</SelectItem>
-              <SelectItem value={LogType.Account}>账号管理日志</SelectItem>
-            </SelectContent>
-          </Select>
-          <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
-          <Button variant="outline" onClick={clearFilters} className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700">
-            清除筛选条件
-          </Button>
-          <Button onClick={() => void loadLogs()} disabled={isLoading} className="h-10 rounded-xl bg-stone-950 px-4 text-white hover:bg-stone-800">
-            {isLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
-            查询
-          </Button>
-        </div>
-      </motion.div>
+    <PageEnter className="space-y-4">
+      <PageHeader
+        title="日志管理"
+        actions={
+          <>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={LogType.Call}>调用日志</SelectItem>
+                <SelectItem value={LogType.Account}>账号管理日志</SelectItem>
+              </SelectContent>
+            </Select>
+            <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
+            <Button variant="outline" onClick={clearFilters}>
+              清除筛选条件
+            </Button>
+            <Button onClick={() => void loadLogs()} disabled={isLoading}>
+              {isLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
+              查询
+            </Button>
+          </>
+        }
+      />
 
       <RpmPanel />
 
-      <motion.div variants={reduceMotion ? undefined : fadeUpItem}>
-      <Card className="overflow-hidden rounded-2xl border-white/80 bg-white/90 shadow-sm">
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
-            <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
-              <label className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-foreground/80">
+              <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => toggleIds(items.map((item) => item.id), Boolean(checked))} />
                 选中当前页
               </label>
-              {selectedIds.length > 0 ? <span>已选 {selectedIds.length} 条</span> : null}
+              {selectedIds.length > 0 ? <span className="text-muted-foreground">已选 {selectedIds.length} 条</span> : null}
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-500" onClick={() => void loadLogs()} disabled={isLoading}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => void loadLogs()} disabled={isLoading}>
                 <RefreshCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} />
                 刷新
               </Button>
-              <button type="button" className="text-sm text-stone-500 hover:text-stone-900 disabled:text-stone-300" onClick={() => setSelectedIds([])} disabled={selectedIds.length === 0 || isDeleting}>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])} disabled={selectedIds.length === 0 || isDeleting}>
                 取消选择
-              </button>
-              <Button variant="outline" className="h-8 rounded-lg border-rose-200 bg-white px-3 text-rose-600 hover:bg-rose-50" onClick={() => setDeletingItems(items.filter((item) => selectedSet.has(item.id)))} disabled={selectedIds.length === 0 || isDeleting}>
+              </Button>
+              <Button variant="tinted-destructive" size="sm" onClick={() => setDeletingItems(items.filter((item) => selectedSet.has(item.id)))} disabled={selectedIds.length === 0 || isDeleting}>
                 <Trash2 className="size-4" />
                 删除所选
               </Button>
@@ -212,50 +206,42 @@ function LogsContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12"></TableHead>
-                  <TableHead>时间</TableHead>
-                  <TableHead>类型</TableHead>
-                  {isCallLog ? <TableHead>令牌名称</TableHead> : null}
-                  {isCallLog ? <TableHead>调用耗时</TableHead> : null}
-                  {isCallLog ? <TableHead>状态</TableHead> : null}
-                  {isCallLog ? <TableHead className="w-36">图片</TableHead> : null}
-                  <TableHead>简述</TableHead>
-                  <TableHead className="w-40">操作</TableHead>
+                  <TableHead className="whitespace-nowrap">时间</TableHead>
+                  <TableHead className="whitespace-nowrap">类型</TableHead>
+                  {isCallLog ? <TableHead className="whitespace-nowrap">令牌名称</TableHead> : null}
+                  {isCallLog ? <TableHead className="whitespace-nowrap">调用耗时</TableHead> : null}
+                  {isCallLog ? <TableHead className="whitespace-nowrap">状态</TableHead> : null}
+                  {isCallLog ? <TableHead className="w-36 whitespace-nowrap">图片</TableHead> : null}
+                  <TableHead className="whitespace-nowrap">简述</TableHead>
+                  <TableHead className="w-40 whitespace-nowrap">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <AnimatePresence mode="popLayout" initial={false}>
-                  {items.map((item, index) => {
+                {/* 行不再用 motion.tr + layout/popLayout：每页最多 100 行，每次勾选/刷新都要逐行测量布局，会明显卡顿；入场淡入改用纯 CSS */}
+                <>
+                  {items.map((item) => {
                     const urls = getUrls(item);
                     const imageUrls = urls.filter(isLocalImageUrl);
                     const linkUrls = urls.filter((url) => !isLocalImageUrl(url));
                     return (
-                      <motion.tr
+                      <tr
                         key={item.id}
-                        layout={!reduceMotion}
-                        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
-                        transition={{
-                          duration: 0.2,
-                          delay: reduceMotion ? 0 : Math.min(index, 12) * 0.02,
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
-                        className="border-b border-stone-100 text-stone-600 transition-colors hover:bg-stone-50/70"
+                        className="border-b border-border/70 text-foreground/80 transition-colors hover:bg-accent/60 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
                       >
                         <TableCell>
                           <Checkbox checked={selectedSet.has(item.id)} onCheckedChange={(checked) => toggleIds([item.id], Boolean(checked))} />
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{item.time}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary" className="rounded-md">
+                          <Badge variant="secondary">
                             {typeLabels[item.type] || item.type}
                           </Badge>
                         </TableCell>
                         {isCallLog ? <TableCell>{getDetailText(item, "key_name")}</TableCell> : null}
-                        {isCallLog ? <TableCell>{formatDuration(item)}</TableCell> : null}
+                        {isCallLog ? <TableCell className="tabular-nums">{formatDuration(item)}</TableCell> : null}
                         {isCallLog ? (
                           <TableCell>
-                            <Badge variant={item.detail?.status === "failed" ? "danger" : "success"} className="rounded-md">
+                            <Badge variant={item.detail?.status === "failed" ? "danger" : "success"}>
                               {getStatus(item)}
                             </Badge>
                           </TableCell>
@@ -270,14 +256,14 @@ function LogsContent() {
                                       <button
                                         key={`${url}-${imageIndex}`}
                                         type="button"
-                                        className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
+                                        className="relative size-9 overflow-hidden rounded-lg border border-border bg-muted"
                                         onClick={() => openLogImage(item, imageIndex)}
                                         title="预览图片"
                                       >
                                         <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
                                       </button>
                                     ))}
-                                    {imageUrls.length > 3 ? <span className="text-xs text-stone-400">+{imageUrls.length - 3}</span> : null}
+                                    {imageUrls.length > 3 ? <span className="text-xs text-muted-foreground">+{imageUrls.length - 3}</span> : null}
                                   </div>
                                 ) : null}
                                 {linkUrls.slice(0, 2).map((url, linkIndex) => (
@@ -286,45 +272,45 @@ function LogsContent() {
                                     href={url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="max-w-[140px] truncate text-xs text-sky-600 hover:underline"
+                                    className="max-w-[140px] truncate text-xs text-primary hover:underline"
                                     title={url}
                                   >
                                     {url}
                                   </a>
                                 ))}
-                                {linkUrls.length > 2 ? <span className="text-xs text-stone-400">+{linkUrls.length - 2}</span> : null}
+                                {linkUrls.length > 2 ? <span className="text-xs text-muted-foreground">+{linkUrls.length - 2}</span> : null}
                               </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-xs text-stone-400">
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                 <ImageIcon className="size-3.5" />
                                 -
                               </span>
                             )}
                           </TableCell>
                         ) : null}
-                        <TableCell className="max-w-[420px] truncate text-stone-500">{item.summary || "-"}</TableCell>
+                        <TableCell className="max-w-[420px] truncate text-muted-foreground">{item.summary || "-"}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-600" onClick={() => openDetail(item)}>
+                            <Button variant="ghost" size="sm" onClick={() => openDetail(item)}>
                               查看详情
                             </Button>
-                            <Button variant="ghost" className="h-8 rounded-lg px-3 text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setDeletingItems([item])}>
+                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeletingItems([item])}>
                               删除
                             </Button>
                           </div>
                         </TableCell>
-                      </motion.tr>
+                      </tr>
                     );
                   })}
-                </AnimatePresence>
+                </>
               </TableBody>
             </Table>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3 text-sm text-muted-foreground">
             <span className="mr-auto flex items-center gap-2">
               每页
               <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
-                <SelectTrigger className="h-9 w-[84px] rounded-lg border-stone-200 bg-white"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[84px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {pageSizeOptions.map((size) => (
                     <SelectItem key={size} value={String(size)}>{size}</SelectItem>
@@ -334,50 +320,44 @@ function LogsContent() {
               条
             </span>
             <span>第 {page} 页</span>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={page <= 1 || isLoading} onClick={() => void loadLogs(page - 1)}>
+            <Button variant="outline" size="icon" disabled={page <= 1 || isLoading} onClick={() => void loadLogs(page - 1)}>
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={!hasMore || isLoading} onClick={() => void loadLogs(page + 1)}>
+            <Button variant="outline" size="icon" disabled={!hasMore || isLoading} onClick={() => void loadLogs(page + 1)}>
               <ChevronRight className="size-4" />
             </Button>
           </div>
-          <AnimatePresence>
-            {!isLoading && items.length === 0 ? (
-              <motion.div
-                key="empty"
-                initial={reduceMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={reduceMotion ? undefined : { opacity: 0 }}
-                className="px-6 py-14 text-center text-sm text-stone-500"
-              >
-                没有找到日志
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+          {!isLoading && items.length === 0 ? (
+            <EmptyState
+              icon={<Search />}
+              title="没有找到日志"
+              description="调整日志类型或日期范围后重试"
+              className="border-t border-border"
+            />
+          ) : null}
         </CardContent>
       </Card>
-      </motion.div>
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="flex h-[min(88vh,860px)] w-[min(92vw,920px)] flex-col overflow-hidden rounded-2xl p-0">
-          <DialogHeader className="shrink-0 border-b border-stone-100 px-6 py-5">
+        <DialogContent className="flex h-[min(88vh,860px)] w-[min(92vw,920px)] flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-border px-6 py-5">
             <DialogTitle>日志详情</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-4">
-              <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-4 text-sm text-stone-600 md:grid-cols-2">
+              <div className="grid gap-3 rounded-2xl border border-border bg-field/50 p-4 text-sm text-foreground/80 md:grid-cols-2">
                 {Object.entries(detailLog?.detail || {})
                   .filter(([key, value]) => key !== "urls" && typeof value !== "object")
                   .map(([key, value]) => (
                     <div key={key} className="flex items-start justify-between gap-4">
-                      <span className="text-stone-400">{key}</span>
-                      <span className="text-right font-medium break-all text-stone-700">{String(value)}</span>
+                      <span className="text-muted-foreground">{key}</span>
+                      <span className="text-right font-medium break-all text-foreground/80">{String(value)}</span>
                     </div>
                   ))}
               </div>
               {detailLinkUrls.length ? (
-                <div className="space-y-1 rounded-xl border border-stone-200 bg-white p-4 text-sm">
+                <div className="space-y-1 rounded-2xl border border-border bg-field/50 p-4 text-sm">
                   {detailLinkUrls.map((url) => (
-                    <a key={url} href={url} target="_blank" rel="noreferrer" className="block truncate text-sky-600 hover:underline" title={url}>
+                    <a key={url} href={url} target="_blank" rel="noreferrer" className="block truncate text-primary hover:underline" title={url}>
                       {url}
                     </a>
                   ))}
@@ -389,7 +369,7 @@ function LogsContent() {
                     <button
                       key={url}
                       type="button"
-                      className="aspect-square overflow-hidden rounded-xl border border-stone-200 bg-stone-100"
+                      className="aspect-square overflow-hidden rounded-xl border border-border bg-muted"
                       onClick={() => {
                         setLightboxIndex(index);
                         setLightboxOpen(true);
@@ -400,7 +380,7 @@ function LogsContent() {
                   ))}
                 </div>
               ) : null}
-              <pre className="max-h-[72vh] overflow-auto rounded-xl border border-stone-200 bg-stone-50 p-4 text-xs leading-6 text-stone-700">
+              <pre className="max-h-[72vh] overflow-auto rounded-xl border border-border bg-field p-4 font-mono text-xs leading-6 text-foreground/80">
                 {JSON.stringify(detailLog?.detail || {}, null, 2)}
               </pre>
             </div>
@@ -415,7 +395,7 @@ function LogsContent() {
         onIndexChange={setLightboxIndex}
       />
       <Dialog open={deletingItems.length > 0} onOpenChange={(open) => (!open ? setDeletingItems([]) : null)}>
-        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+        <DialogContent showCloseButton={false} className="p-6">
           <DialogHeader className="gap-2">
             <DialogTitle>{deletingItems.length === 1 ? "删除日志" : "删除所选日志"}</DialogTitle>
             <DialogDescription className="text-sm leading-6">
@@ -423,10 +403,10 @@ function LogsContent() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setDeletingItems([])} disabled={isDeleting}>
+            <Button variant="secondary" onClick={() => setDeletingItems([])} disabled={isDeleting}>
               取消
             </Button>
-            <Button className="rounded-xl bg-rose-600 text-white hover:bg-rose-700" onClick={() => void confirmDelete()} disabled={isDeleting || deletingItems.length === 0}>
+            <Button variant="destructive" onClick={() => void confirmDelete()} disabled={isDeleting || deletingItems.length === 0}>
               {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : null}
               确认删除
             </Button>
@@ -440,7 +420,7 @@ function LogsContent() {
 export default function LogsPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
   if (isCheckingAuth || !session || session.role !== "admin") {
-    return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-stone-400" /></div>;
+    return <div className="flex min-h-[40vh] items-center justify-center"><LoaderCircle className="size-5 animate-spin text-muted-foreground" /></div>;
   }
   return <LogsContent />;
 }

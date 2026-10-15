@@ -28,7 +28,7 @@ export function ImageThumbnail({ src, thumbnailSrc, alt = "", className, imageCl
   }, [initialSrc]);
 
   return (
-    <span className={cn("block overflow-hidden bg-stone-100", className)}>
+    <span className={cn("block overflow-hidden bg-muted", className)}>
       <img
         src={currentSrc}
         alt={alt}

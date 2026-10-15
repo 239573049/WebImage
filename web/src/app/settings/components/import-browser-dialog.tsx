@@ -49,7 +49,9 @@ export function ImportBrowserDialog() {
   const filePageCount = Math.max(1, Math.ceil(filteredFiles.length / currentPageSize));
   const safeFilePage = Math.min(filePage, filePageCount);
   const pagedFiles = filteredFiles.slice((safeFilePage - 1) * currentPageSize, safeFilePage * currentPageSize);
-  const allFilteredSelected = filteredFiles.length > 0 && filteredFiles.every((item) => selectedNames.includes(item.name));
+  // 用 Set 判断是否已选：全选后 selectedNames 与 filteredFiles 都是上千条，includes 会是 O(n²)，每次输入搜索词都要算一遍
+  const selectedNameSet = useMemo(() => new Set(selectedNames), [selectedNames]);
+  const allFilteredSelected = filteredFiles.length > 0 && filteredFiles.every((item) => selectedNameSet.has(item.name));
 
   const toggleSelectAllFiltered = (checked: boolean) => {
     if (checked) {
@@ -62,116 +64,113 @@ export function ImportBrowserDialog() {
 
   return (
     <Dialog open={browserOpen} onOpenChange={setBrowserOpen}>
-      <DialogContent showCloseButton={false} className="max-h-[90vh] max-w-5xl rounded-2xl p-6">
-        <DialogHeader className="gap-2">
+      <DialogContent showCloseButton={false} className="flex max-h-[85vh] max-w-5xl flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 gap-2">
           <DialogTitle>选择要导入的账号</DialogTitle>
           <DialogDescription className="text-sm leading-6">
             {browserPool ? `来自 ${browserPool.name || browserPool.base_url}` : "读取到的远程账号列表"}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative min-w-[260px]">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone-400" />
-            <Input
-              value={fileQuery}
-              onChange={(event) => setFileQuery(event.target.value)}
-              placeholder="搜索 email 或文件名"
-              className="h-10 rounded-xl border-stone-200 bg-white pl-10"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Select value={pageSize} onValueChange={(value) => setPageSize(value as (typeof PAGE_SIZE_OPTIONS)[number])}>
-              <SelectTrigger className="h-10 w-[120px] rounded-xl border-stone-200 bg-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item} / 页
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700"
-              onClick={() => toggleSelectAllFiltered(!allFilteredSelected)}
-            >
-              {allFilteredSelected ? "取消全选" : "全选筛选结果"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-stone-200">
-          <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 text-sm text-stone-500">
-            <div className="flex items-center gap-3">
-              <Checkbox checked={allFilteredSelected} onCheckedChange={(checked) => toggleSelectAllFiltered(Boolean(checked))} />
-              <span>筛选结果 {filteredFiles.length} 个</span>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative min-w-[260px]">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={fileQuery}
+                onChange={(event) => setFileQuery(event.target.value)}
+                placeholder="搜索 email 或文件名"
+                className="pl-10"
+              />
             </div>
-            <span>已选 {selectedNames.length} 个</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={pageSize} onValueChange={(value) => setPageSize(value as (typeof PAGE_SIZE_OPTIONS)[number])}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item} / 页
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                onClick={() => toggleSelectAllFiltered(!allFilteredSelected)}
+              >
+                {allFilteredSelected ? "取消全选" : "全选筛选结果"}
+              </Button>
+            </div>
           </div>
-          <div className="max-h-[420px] overflow-auto">
-            {pagedFiles.length === 0 ? (
-              <div className="flex items-center justify-center py-12 text-sm text-stone-400">没有匹配的远程账号</div>
-            ) : (
-              <div className="divide-y divide-stone-100">
-                {pagedFiles.map((item) => (
-                  <label key={item.name} className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-stone-50">
-                    <Checkbox
-                      checked={selectedNames.includes(item.name)}
-                      onCheckedChange={(checked) => toggleFile(item.name, Boolean(checked))}
-                    />
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-stone-700">{item.email || item.name}</div>
-                      <div className="truncate text-xs text-stone-400">{item.name}</div>
-                    </div>
-                  </label>
-                ))}
+
+          <div className="rounded-2xl border border-border">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3 text-sm text-muted-foreground">
+              <div className="flex items-center gap-3">
+                <Checkbox checked={allFilteredSelected} onCheckedChange={(checked) => toggleSelectAllFiltered(Boolean(checked))} />
+                <span>筛选结果 {filteredFiles.length} 个</span>
               </div>
-            )}
+              <span>已选 {selectedNames.length} 个</span>
+            </div>
+            <div className="max-h-[420px] overflow-auto">
+              {pagedFiles.length === 0 ? (
+                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">没有匹配的远程账号</div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {pagedFiles.map((item) => (
+                    <label key={item.name} className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/60">
+                      <Checkbox
+                        checked={selectedNameSet.has(item.name)}
+                        onCheckedChange={(checked) => toggleFile(item.name, Boolean(checked))}
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground/80">{item.email || item.name}</div>
+                        <div className="truncate text-xs text-muted-foreground">{item.name}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center justify-between text-sm text-stone-500">
-          <span>
-            第 {filteredFiles.length === 0 ? 0 : (safeFilePage - 1) * currentPageSize + 1} -{" "}
-            {Math.min(safeFilePage * currentPageSize, filteredFiles.length)} 条，共 {filteredFiles.length} 条
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="h-9 rounded-xl border-stone-200 bg-white px-3"
-              onClick={() => setFilePage(Math.max(1, safeFilePage - 1))}
-              disabled={safeFilePage <= 1}
-            >
-              上一页
-            </Button>
+          <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <span>
-              {safeFilePage}/{filePageCount}
+              第 {filteredFiles.length === 0 ? 0 : (safeFilePage - 1) * currentPageSize + 1} -{" "}
+              {Math.min(safeFilePage * currentPageSize, filteredFiles.length)} 条，共 {filteredFiles.length} 条
             </span>
-            <Button
-              variant="outline"
-              className="h-9 rounded-xl border-stone-200 bg-white px-3"
-              onClick={() => setFilePage(Math.min(filePageCount, safeFilePage + 1))}
-              disabled={safeFilePage >= filePageCount}
-            >
-              下一页
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setFilePage(Math.max(1, safeFilePage - 1))}
+                disabled={safeFilePage <= 1}
+              >
+                上一页
+              </Button>
+              <span>
+                {safeFilePage}/{filePageCount}
+              </span>
+              <Button
+                variant="outline"
+                onClick={() => setFilePage(Math.min(filePageCount, safeFilePage + 1))}
+                disabled={safeFilePage >= filePageCount}
+              >
+                下一页
+              </Button>
+            </div>
           </div>
         </div>
 
-        <DialogFooter className="pt-2">
+        <DialogFooter className="shrink-0 pt-2">
           <Button
             variant="secondary"
-            className="h-10 rounded-xl bg-stone-100 px-5 text-stone-700 hover:bg-stone-200"
             onClick={() => setBrowserOpen(false)}
             disabled={isStartingImport}
           >
             取消
           </Button>
           <Button
-            className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
             onClick={() => void startImport()}
             disabled={isStartingImport || selectedNames.length === 0}
           >

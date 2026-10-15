@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { httpRequest } from "@/lib/request";
+import { cn } from "@/lib/utils";
 
 import { pretty, type ChatCompletionResponse, type ChatContentPart, type ChatMessage } from "./types";
 
@@ -129,21 +130,21 @@ export function ChatPanel() {
   };
 
   return (
-    <div className="grid h-full min-h-0 gap-8 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <section className="flex min-h-0 flex-col lg:border-r lg:border-stone-200/70 lg:pr-8 dark:lg:border-white/10">
-        <div className="border-b border-stone-200/70 pb-3 dark:border-white/10">
-          <h2 className="text-sm font-medium text-stone-500 dark:text-stone-400">请求</h2>
+    <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="glass flex min-h-0 flex-col rounded-[22px] p-5">
+        <div className="border-b border-border pb-3">
+          <h2 className="text-sm font-medium text-muted-foreground">请求</h2>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto pt-4">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
             <div className="space-y-2">
               <Label htmlFor="chat-model">Model</Label>
-              <Input id="chat-model" value={model} onChange={(event) => setModel(event.target.value)} className="rounded-md border-stone-200/70 bg-transparent shadow-none dark:border-white/10" />
+              <Input id="chat-model" value={model} onChange={(event) => setModel(event.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="chat-reasoning-effort">思考强度</Label>
               <Select value={reasoningEffort || "default"} onValueChange={(value) => setReasoningEffort(value === "default" ? "" : value)}>
-                <SelectTrigger id="chat-reasoning-effort" className="h-10 rounded-md border-stone-200/70 bg-transparent shadow-none dark:border-white/10">
+                <SelectTrigger id="chat-reasoning-effort">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -158,11 +159,11 @@ export function ChatPanel() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="chat-input">Message</Label>
-            <Textarea id="chat-input" value={input} onChange={(event) => setInput(event.target.value)} className="min-h-32 rounded-md border-stone-200/70 bg-transparent shadow-none dark:border-white/10" />
+            <Textarea id="chat-input" value={input} onChange={(event) => setInput(event.target.value)} className="min-h-32" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="chat-images">图片</Label>
-            <label htmlFor="chat-images" className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-stone-300 bg-stone-50/70 px-3 py-3 text-sm text-stone-600 transition hover:border-stone-400 hover:bg-stone-100 dark:border-white/10 dark:bg-white/[0.03] dark:text-stone-300 dark:hover:bg-white/[0.06]">
+            <label htmlFor="chat-images" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-field px-3 py-3 text-sm text-foreground/80 transition-colors hover:border-input hover:bg-field-hover">
               <ImagePlus className="size-4" />
               选择图片
             </label>
@@ -173,12 +174,12 @@ export function ChatPanel() {
             {selectedImages.length ? (
               <div className="grid grid-cols-2 gap-2">
                 {selectedImages.map((image) => (
-                  <div key={image.id} className="group relative overflow-hidden rounded-md border border-stone-200 bg-white dark:border-white/10 dark:bg-white/[0.04]">
+                  <div key={image.id} className="group relative overflow-hidden rounded-xl border border-border bg-muted">
                     <img src={image.url} alt={image.name} className="aspect-square w-full object-cover" />
-                    <button type="button" aria-label={`移除 ${image.name}`} onClick={() => setSelectedImages((current) => current.filter((item) => item.id !== image.id))} className="absolute top-1 right-1 flex size-7 items-center justify-center rounded-md bg-white/90 text-stone-700 shadow-sm transition hover:bg-white dark:bg-stone-950/90 dark:text-stone-100">
+                    <button type="button" aria-label={`移除 ${image.name}`} onClick={() => setSelectedImages((current) => current.filter((item) => item.id !== image.id))} className="absolute top-1 right-1 flex size-7 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70">
                       <X className="size-4" />
                     </button>
-                    <div className="absolute inset-x-0 bottom-0 truncate bg-white/90 px-2 py-1 text-xs text-stone-600 dark:bg-stone-950/90 dark:text-stone-300">{image.name}</div>
+                    <div className="absolute inset-x-0 bottom-0 truncate bg-black/50 px-2 py-1 text-xs text-white">{image.name}</div>
                   </div>
                 ))}
               </div>
@@ -193,29 +194,29 @@ export function ChatPanel() {
               清空
             </Button>
           </div>
-          {error ? <div className="rounded-md border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-300">{error}</div> : null}
-          <Textarea value={raw ? pretty(raw) : "{\n  \"messages\": []\n}"} readOnly className="min-h-72 resize-none rounded-md border-stone-200/70 bg-stone-50/50 p-4 font-mono text-xs leading-5 text-stone-600 shadow-none dark:border-white/10 dark:bg-white/[0.03] dark:text-stone-300" />
+          {error ? <div className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+          <Textarea value={raw ? pretty(raw) : "{\n  \"messages\": []\n}"} readOnly className="min-h-72 resize-none rounded-xl border border-border bg-field p-4 font-mono text-xs leading-5" />
         </div>
       </section>
-      <section className="flex min-h-0 flex-col">
-        <div className="border-b border-stone-200/70 pb-3 dark:border-white/10">
-          <h2 className="text-sm font-medium text-stone-500 dark:text-stone-400">对话</h2>
+      <section className="glass flex min-h-0 flex-col rounded-[22px] p-5">
+        <div className="border-b border-border pb-3">
+          <h2 className="text-sm font-medium text-muted-foreground">对话</h2>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto pt-4">
           {messages.length ? messages.map((message, index) => (
             <div key={`${message.role}-${index}`} className="space-y-1.5 text-sm">
-              <div className="text-xs font-medium uppercase tracking-wide text-stone-400 dark:text-stone-500">{message.role}</div>
+              <div className={cn("text-xs font-medium", message.role === "user" ? "text-foreground/70" : message.role === "assistant" ? "text-primary" : "text-muted-foreground")}>{message.role}</div>
               {messageImages(message).length ? (
                 <div className="flex flex-wrap gap-2">
                   {messageImages(message).map((url, imageIndex) => (
-                    <img key={`${index}-${imageIndex}`} src={url} alt="" className="h-28 w-28 rounded-md border border-stone-200 object-cover dark:border-white/10" />
+                    <img key={`${index}-${imageIndex}`} src={url} alt="" className="h-28 w-28 rounded-xl border border-border object-cover" />
                   ))}
                 </div>
               ) : null}
-              {messageText(message) ? <div className="whitespace-pre-wrap leading-7 text-stone-700 dark:text-stone-300">{messageText(message)}</div> : null}
+              {messageText(message) ? <div className="whitespace-pre-wrap leading-7 text-foreground/85">{messageText(message)}</div> : null}
             </div>
           )) : (
-            <div className="flex h-full items-center justify-center text-sm text-stone-400 dark:text-stone-500">暂无对话消息</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">暂无对话消息</div>
           )}
         </div>
       </section>
