@@ -29,7 +29,8 @@ services:
       SENTINEL_SOLVER_PORT: "8788"
       SENTINEL_SOLVER_CHROME: /usr/bin/chromium
       SENTINEL_SOLVER_PROFILE_DIR: /tmp/solver-profile
-      # 浏览器自身出网：留空直连；需要时填 http://host:port
+      # 浏览器自身出网：留空直连；可填 http://host:port 或带认证的 http://user:pass@host:port，
+      # 建议与主服务的上游代理相同（同一出口 IP）
       SENTINEL_SOLVER_PROXY: ${SENTINEL_SOLVER_PROXY:-}
     expose:
       - "8788"

@@ -32,7 +32,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 LOG = logging.getLogger("sentinel-solver")
 
@@ -273,25 +273,23 @@ def make_page_proxy(proxy: str) -> tuple[str, Any | None]:
 
     Chrome 的 --proxy-server 不接受 user:pass@ 形式（会直接停在 chrome-error 页），
     因此带认证时在本地起一个转发端口：页面连它，它再带凭据连真正的代理。
+    转发只用标准库：https 走 CONNECT 隧道，普通 http 原样转给上游代理并补上凭据。
     """
     if not proxy:
         return "", None
     parsed = urlparse(proxy if "://" in proxy else "http://" + proxy)
     if not parsed.username:
         return proxy, None                     # 无认证：Chrome 直接支持
-    try:
-        import base64
-        from curl_cffi import requests as curl_requests
-    except Exception:
-        LOG.warning("代理带认证但缺少 curl_cffi，无法转发，页面将直连")
-        return "", None
+    import base64
 
     upstream_host = parsed.hostname or ""
     upstream_port = parsed.port or 80
     upstream_auth = "Basic " + base64.b64encode(
-        f"{parsed.username}:{parsed.password or ''}".encode()
+        f"{unquote(parsed.username)}:{unquote(parsed.password or '')}".encode()
     ).decode()
     upstream_scheme = (parsed.scheme or "http").lower()
+    # 不能原样转给上游的逐跳头；凭据与 Connection 由转发方自己补
+    hop_by_hop = {"proxy-authorization", "proxy-connection", "connection", "keep-alive"}
 
     class _Relay(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -350,28 +348,38 @@ def make_page_proxy(proxy: str) -> tuple[str, Any | None]:
                     pass
 
         def _forward(self, method: str) -> None:
-            """http 请求：交给 curl_cffi 带上游凭据转发。"""
+            """普通 http 请求：以绝对 URI 原样转给上游代理并补上凭据；一个连接只转一个请求。"""
+            self.close_connection = True
+            if "chunked" in str(self.headers.get("Transfer-Encoding") or "").lower():
+                self.send_error(501, "chunked request body not supported")
+                return
             length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(length) if length else None
-            headers = {k: v for k, v in self.headers.items() if k.lower() != "proxy-authorization"}
+            body = self.rfile.read(length) if length else b""
+            lines = [f"{method} {self.path} HTTP/1.1"]
+            lines += [f"{name}: {value}" for name, value in self.headers.items()
+                      if name.lower() not in hop_by_hop]
+            lines += [f"Proxy-Authorization: {upstream_auth}", "Connection: close"]
+            relayed = False
             try:
-                response = curl_requests.request(method, self.path, headers=headers, data=body,
-                                                 proxy=proxy, verify=True, timeout=60)
-                payload = response.content
-                self.send_response(response.status_code)
-                for name, value in response.headers.items():
-                    if name.lower() in ("content-length", "transfer-encoding", "connection"):
-                        continue
-                    self.send_header(name, value)
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                upstream = socket.create_connection((upstream_host, upstream_port), timeout=30)
+                try:
+                    upstream.settimeout(60)
+                    upstream.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + body)
+                    while True:
+                        chunk = upstream.recv(65536)
+                        if not chunk:
+                            break
+                        relayed = True
+                        self.wfile.write(chunk)
+                finally:
+                    upstream.close()
             except Exception as exc:
                 LOG.debug("转发失败 %s: %s", self.path[:80], str(exc)[:150])
-                try:
-                    self.send_error(502, "proxy error")
-                except Exception:
-                    pass
+                if not relayed:
+                    try:
+                        self.send_error(502, "proxy error")
+                    except Exception:
+                        pass
 
         def do_CONNECT(self) -> None:      # noqa: N802
             self._tunnel(self.path)
@@ -397,7 +405,12 @@ def make_page_proxy(proxy: str) -> tuple[str, Any | None]:
     local = f"http://127.0.0.1:{server.server_address[1]}"
     LOG.info("代理带认证：已在本机 %s 起转发（%s，浏览器不直接持有凭据）",
              local, upstream_scheme)
-    return local, server.shutdown
+
+    def stop() -> None:
+        server.shutdown()
+        server.server_close()
+
+    return local, stop
 
 
 DEFAULT_CHROME_CANDIDATES = [
