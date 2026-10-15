@@ -434,6 +434,86 @@ class CloudflareChallengeTests(_IdentityTestBase):
         self.assertEqual(_ChallengeSession.queue, [])
 
 
+SERVER_BUSY = (
+    b'<?xml version="1.0" encoding="utf-8"?><Error><Code>ServerBusy</Code>'
+    b"<Message>The server is busy.</Message></Error>"
+)
+
+
+class _DownloadResponse:
+    def __init__(self, status_code: int, content: bytes = b"", headers: dict[str, str] | None = None) -> None:
+        self.status_code = status_code
+        self.content = content
+        self.text = content.decode("utf-8", "replace")
+        self.headers = Headers(headers or {})
+
+    def json(self) -> object:
+        return json.loads(self.text)
+
+
+class _DownloadSession(_FakeCurlSession):
+    queue: list[object] = []
+
+    def get(self, url: str, **kwargs: object) -> object:
+        item = type(self).queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+class ImageDownloadRetryTests(_IdentityTestBase):
+    """图片存储（Azure Blob）偶发 503 ServerBusy：退避重试，不让已生成的图片白白丢掉。"""
+
+    def download(self, *queue: object) -> tuple[object, list[float]]:
+        _DownloadSession.queue = list(queue)
+        api = self.make_api(session_cls=_DownloadSession)
+        with patch("services.openai_backend_api.time.sleep") as sleep:
+            try:
+                result: object = api.download_image_bytes(["https://files.example.com/img.png?sig=secret"])
+            except Exception as exc:
+                result = exc
+        return result, [call.args[0] for call in sleep.call_args_list]
+
+    def test_server_busy_is_retried_with_backoff(self) -> None:
+        result, waits = self.download(
+            _DownloadResponse(503, SERVER_BUSY), _DownloadResponse(503, SERVER_BUSY), _DownloadResponse(200, b"png"),
+        )
+
+        self.assertEqual(result, [b"png"])
+        self.assertEqual(waits, [1.0, 2.0])
+
+    def test_retry_after_is_honored_but_capped(self) -> None:
+        result, waits = self.download(
+            _DownloadResponse(503, SERVER_BUSY, {"Retry-After": "3"}),
+            _DownloadResponse(429, b"", {"Retry-After": "120"}),
+            _DownloadResponse(200, b"png"),
+        )
+
+        self.assertEqual(result, [b"png"])
+        self.assertEqual(waits, [3.0, 10.0])
+
+    def test_connection_errors_are_retried(self) -> None:
+        result, waits = self.download(OSError("curl: (56) Recv failure: Connection reset by peer"), _DownloadResponse(200, b"png"))
+
+        self.assertEqual(result, [b"png"])
+        self.assertEqual(waits, [1.0])
+
+    def test_gives_up_after_four_attempts_with_the_upstream_error(self) -> None:
+        result, waits = self.download(*[_DownloadResponse(503, SERVER_BUSY) for _ in range(4)])
+
+        self.assertIsInstance(result, UpstreamHTTPError)
+        self.assertEqual(result.status_code, 503)
+        self.assertEqual(waits, [1.0, 2.0, 4.0])
+        self.assertEqual(_DownloadSession.queue, [])
+
+    def test_client_errors_are_not_retried(self) -> None:
+        result, waits = self.download(_DownloadResponse(404, b"<Error><Code>BlobNotFound</Code></Error>"))
+
+        self.assertIsInstance(result, UpstreamHTTPError)
+        self.assertEqual(result.status_code, 404)
+        self.assertEqual(waits, [])
+
+
 class _ImageAccounts:
     def __init__(self) -> None:
         self.marks: list[tuple[bool, str]] = []
