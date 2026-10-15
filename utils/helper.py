@@ -195,12 +195,36 @@ class UpstreamHTTPError(RuntimeError):
         super().__init__(f"{context} failed: status={status_code}, body={body_str}")
 
 
+_ERROR_BODY_READ_LIMIT = 64 * 1024
+
+
+def _read_stream_body(response: requests.Response) -> str:
+    """读取 stream=True 响应的 body；非流式响应没有可读的流，返回空串。"""
+    try:
+        chunks: list[bytes] = []
+        size = 0
+        for chunk in response.iter_content():
+            chunks.append(chunk)
+            size += len(chunk)
+            if size >= _ERROR_BODY_READ_LIMIT:
+                response.close()
+                break
+        return b"".join(chunks).decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
 def ensure_ok(response: requests.Response, context: str) -> None:
     if 200 <= response.status_code < 300:
         return
     body: Any = response.text
+    # stream=True 的响应在被消费前 .text 为空，直接取会丢掉上游真实的报错（如 model_not_found），这里主动读完
+    streamed = False
+    if not body:
+        body = _read_stream_body(response)
+        streamed = bool(body)
     try:
-        body = response.json()
+        body = json.loads(body) if streamed else response.json()
     except Exception:
         pass
     retry_after_header = response.headers.get("Retry-After") if hasattr(response, "headers") else None

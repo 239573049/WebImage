@@ -13,20 +13,33 @@ services:
       - ./config.json:/app/config.json
     environment:
       # 存储后端配置 (可选值: json, sqlite, postgres, git)
-       - STORAGE_BACKEND=json
+      STORAGE_BACKEND: sqlite
       
-      # 数据库配置 (当 STORAGE_BACKEND=sqlite/postgres 时使用)
-      # - DATABASE_URL=postgresql://user:password@host:5432/dbname
-      # - DATABASE_URL=sqlite:///app/data/accounts.db
+      # 数据库配置 (当 STORAGE_BACKEND=sqlite/postgres 时使用；sqlite 不指定时自动使用 /app/data/accounts.db)
+      # DATABASE_URL: postgresql://user:password@host:5432/dbname
+      # DATABASE_URL: sqlite:////app/data/accounts.db
       
       # Git 仓库配置 (当 STORAGE_BACKEND=git 时使用)
-      # - GIT_REPO_URL=https://github.com/user/repo.git
-      # - GIT_TOKEN=ghp_xxxxxxxxxxxx
-      # - GIT_BRANCH=main
-      # - GIT_FILE_PATH=accounts.json
+      # GIT_REPO_URL: https://github.com/user/repo.git
+      # GIT_TOKEN: ghp_xxxxxxxxxxxx
+      # GIT_BRANCH: main
+      # GIT_FILE_PATH: accounts.json
       
       # 认证密钥 (可选，覆盖 config.json)
-      # - CHATGPT2API_AUTH_KEY=your_secret_key
+      # CHATGPT2API_AUTH_KEY: your_secret_key
       
       # 基础 URL (可选)
-      # - CHATGPT2API_BASE_URL=https://your-domain.com
+      # CHATGPT2API_BASE_URL: https://your-domain.com
+      
+      # Means 图片存储初始化配置 (可选，仅当 config.json 中尚无 means 配置时生效，初始化后以 config.json 为准)
+      # CHATGPT2API_MEANS_ENABLED: "true"
+      # CHATGPT2API_MEANS_ENDPOINT: http://127.0.0.1:5178/s3/
+      # CHATGPT2API_MEANS_ACCESS_KEY: meansadmin
+      # CHATGPT2API_MEANS_SECRET_KEY: your_means_secret
+      # CHATGPT2API_MEANS_BUCKET: generated-images
+      # CHATGPT2API_MEANS_PREFIX: chatgpt2api/images
+      # CHATGPT2API_MEANS_PUBLIC_BASE_URL: https://files.example.com/generated-images
+      # CHATGPT2API_MEANS_REGION: us-east-1
+      # CHATGPT2API_MEANS_SERVICE: s3
+      # CHATGPT2API_MEANS_TIMEOUT_SECONDS: "60"
+      # CHATGPT2API_MEANS_VERIFY_SSL: "true"

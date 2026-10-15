@@ -79,6 +79,35 @@ class UpstreamModelMappingTests(unittest.TestCase):
         upstream_model, _ = self._settings("gpt-image-2")
         self.assertEqual(upstream_model, config.default_upstream_model_name)
 
+    def test_default_upstream_model_is_the_instant_model_and_stays_overridable(self) -> None:
+        store, tmp_dir = make_store({"auth-key": "test-auth"})
+        self.addCleanup(tmp_dir.cleanup)
+        self.assertEqual(store.default_upstream_model_name, "gpt-6")
+
+        store.update({"default_upstream_model_name": "gpt-5-6"})
+        self.assertEqual(store.default_upstream_model_name, "gpt-5-6")
+
+    def test_image_request_body_uses_the_instant_model_without_thinking_effort(self) -> None:
+        # instant 不是思考强度后缀（standard / extended / max），请求体里既不能被截断也不能带 thinking_effort
+        store, tmp_dir = make_store({"auth-key": "test-auth"})
+        self.addCleanup(tmp_dir.cleanup)
+        posts: list[tuple[str, dict]] = []
+        api = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+        api.base_url = "https://chatgpt.com"
+        api.session = SimpleNamespace(
+            headers={},
+            post=lambda url, **kwargs: posts.append((url, kwargs)) or SimpleNamespace(status_code=200),
+        )
+        requirements = SimpleNamespace(token="sentinel", proof_token="")
+
+        with mock.patch("services.openai_backend_api.config", store):
+            api._start_image_generation("draw a cat", requirements, "conduit", "gpt-image-2")
+
+        [(url, kwargs)] = posts
+        self.assertEqual(url, "https://chatgpt.com/backend-api/f/conversation")
+        self.assertEqual(kwargs["json"]["model"], "gpt-6")
+        self.assertNotIn("thinking_effort", kwargs["json"])
+
     def test_codex_model_keeps_its_own_slug(self) -> None:
         upstream_model, _ = self._settings("plus-codex-gpt-image-2")
         self.assertEqual(upstream_model, "codex-gpt-image-2")

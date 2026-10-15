@@ -92,10 +92,12 @@ docker-compose up -d
 
 支持通过环境变量 `STORAGE_BACKEND` 切换存储方式：
 
-- `json` - 本地 JSON 文件（默认）
-- `sqlite` - 本地 SQLite 数据库
+- `sqlite` - 本地 SQLite 数据库（默认，数据存放在 `data/accounts.db`）
+- `json` - 本地 JSON 文件
 - `postgres` - 外部 PostgreSQL（需配置 `DATABASE_URL`）
 - `git` - Git 私有仓库（需配置 `GIT_REPO_URL` 和 `GIT_TOKEN`）
+
+首次以 SQLite 启动时，会自动把旧的 `data/accounts.json` / `data/auth_keys.json` 迁移到数据库，并将旧文件重命名为 `*.json.migrated` 备份。
 
 示例：使用 PostgreSQL
 
@@ -142,8 +144,9 @@ environment:
 - 支持网页端配置全局 HTTP / HTTPS / SOCKS5 / SOCKS5H 代理
 - 支持 WARP / FlareSolverr 稳定代理运行时
 - 支持搜索、筛选、批量刷新、导出、手动编辑和清理账号
-- 支持四种导入方式：本地 CPA JSON 文件导入、远程 CPA 服务器导入、`sub2api` 服务器导入、`access_token` 导入
+- 支持多种导入方式：OAuth 登录、`access_token`（粘贴 / TXT）、Session JSON、Codex 认证 JSON、账号 JSON 文件（本项目 / CPA / `sub2api` 导出）、`sub2api` 导出 JSON（粘贴或选文件）、远程 CPA 服务器、`sub2api` 服务器
 - 支持在设置页配置 `sub2api` 服务器，筛选并批量导入其中的 OpenAI OAuth 账号
+- 导入 `sub2api` 导出 JSON 时会展开 `accounts[].credentials`，保留 `refresh_token` / `id_token` / 套餐信息，并自动跳过非 OpenAI 平台的账号
 
 ### 实验性 / 规划中
 

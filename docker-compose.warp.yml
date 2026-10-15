@@ -102,7 +102,7 @@ services:
       - ./data:/app/data
       - ./config.json:/app/config.json
     environment:
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-json}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-sqlite}
       DATABASE_URL: ${DATABASE_URL:-}
       CHATGPT2API_AUTH_KEY: ${CHATGPT2API_AUTH_KEY:-}
       CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-}

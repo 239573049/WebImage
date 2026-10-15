@@ -4,14 +4,17 @@ import copy
 import io
 import json
 import os
+import threading
 import unittest
 import urllib.error
 from email.message import Message
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("CHATGPT2API_AUTH_KEY", "test-auth")
 
+from curl_cffi import requests as curl_requests
 from curl_cffi.requests import Headers
 
 from services.config import DEFAULT_PROXY_RUNTIME
@@ -22,7 +25,7 @@ from services.openai_backend_api import (
     _is_content_policy_error,
 )
 from services.proxy_service import ProxySettingsStore
-from utils.helper import UpstreamHTTPError
+from utils.helper import UpstreamHTTPError, ensure_ok
 
 
 class ImageTextErrorTests(unittest.TestCase):
@@ -230,4 +233,87 @@ class CodexResponsesTransportTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 429)
         self.assertEqual(caught.exception.retry_after, 9)
         self.assertEqual(caught.exception.body, {"error": "slow"})
+
+
+class _UpstreamStub(BaseHTTPRequestHandler):
+    """本地假上游：按路径返回固定的状态码、响应头和 body。"""
+
+    routes: dict[str, tuple[int, dict[str, str], bytes]] = {}
+
+    def do_POST(self) -> None:
+        status, headers, body = self.routes[self.path]
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.send_response(status)
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args: object) -> None:
+        return None
+
+
+class EnsureOkTests(unittest.TestCase):
+    """stream=True 的响应在被读取前 .text 为空；错误状态码必须把上游真实的报错读出来。"""
+
+    def setUp(self) -> None:
+        _UpstreamStub.routes = {
+            "/model-missing": (404, {"Content-Type": "application/json"}, b'{"detail": "Model not found"}'),
+            "/rate-limited": (429, {"Content-Type": "application/json", "Retry-After": "7"}, b'{"error": "slow"}'),
+            "/gateway": (502, {"Content-Type": "text/html"}, b"<h1>Bad Gateway</h1>"),
+            "/empty": (404, {}, b""),
+            "/fine": (200, {"Content-Type": "application/json"}, b"{}"),
+        }
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _UpstreamStub)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.base = f"http://127.0.0.1:{server.server_address[1]}"
+        self.session = curl_requests.Session(trust_env=False)
+        self.addCleanup(self.session.close)
+
+    def post(self, path: str, *, stream: bool) -> object:
+        return self.session.post(self.base + path, json={}, stream=stream, timeout=10)
+
+    def raised(self, path: str, *, stream: bool) -> UpstreamHTTPError:
+        response = self.post(path, stream=stream)
+        with self.assertRaises(UpstreamHTTPError) as caught:
+            ensure_ok(response, "/backend-api/f/conversation")
+        return caught.exception
+
+    def test_streamed_error_keeps_the_upstream_json_body(self) -> None:
+        error = self.raised("/model-missing", stream=True)
+
+        self.assertEqual(error.status_code, 404)
+        self.assertEqual(error.body, {"detail": "Model not found"})
+        self.assertIn("Model not found", str(error))
+
+    def test_streamed_error_keeps_retry_after_and_non_json_body(self) -> None:
+        limited = self.raised("/rate-limited", stream=True)
+        gateway = self.raised("/gateway", stream=True)
+
+        self.assertEqual((limited.status_code, limited.retry_after, limited.body), (429, 7, {"error": "slow"}))
+        self.assertEqual((gateway.status_code, gateway.body), (502, "<h1>Bad Gateway</h1>"))
+
+    def test_non_streamed_error_behaves_as_before(self) -> None:
+        error = self.raised("/model-missing", stream=False)
+
+        self.assertEqual((error.status_code, error.body), (404, {"detail": "Model not found"}))
+
+    def test_empty_error_body_stays_empty_for_both_modes(self) -> None:
+        for stream in (True, False):
+            with self.subTest(stream=stream):
+                error = self.raised("/empty", stream=stream)
+                self.assertEqual((error.status_code, error.body), (404, ""))
+
+    def test_success_status_passes_through_and_leaves_the_stream_readable(self) -> None:
+        response = self.post("/fine", stream=True)
+
+        ensure_ok(response, "/backend-api/f/conversation")
+
+        self.assertEqual(b"".join(response.iter_content()), b"{}")
 

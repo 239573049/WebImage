@@ -217,8 +217,8 @@ class OpenAIBackendAPI:
             "Sec-Ch-Ua": self.fp["sec-ch-ua"],
             "Sec-Ch-Ua-Arch": '"x86"',
             "Sec-Ch-Ua-Bitness": '"64"',
-            "Sec-Ch-Ua-Full-Version": '"143.0.3650.96"',
-            "Sec-Ch-Ua-Full-Version-List": '"Microsoft Edge";v="143.0.3650.96", "Chromium";v="143.0.7499.147", "Not A(Brand";v="24.0.0.0"',
+            "Sec-Ch-Ua-Full-Version": '"148.0.0.0"',
+            "Sec-Ch-Ua-Full-Version-List": '"Microsoft Edge";v="148.0.0.0", "Chromium";v="148.0.0.0", "Not A(Brand";v="24.0.0.0"',
             "Sec-Ch-Ua-Mobile": self.fp["sec-ch-ua-mobile"],
             "Sec-Ch-Ua-Model": '""',
             "Sec-Ch-Ua-Platform": self.fp["sec-ch-ua-platform"],
@@ -275,12 +275,12 @@ class OpenAIBackendAPI:
         fp.setdefault(
             "user-agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
+            "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
         )
-        fp.setdefault("impersonate", "chrome110")
+        fp.setdefault("impersonate", "chrome146")
         fp.setdefault("oai-device-id", new_uuid())
         fp.setdefault("oai-session-id", new_uuid())
-        fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"')
+        fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="148", "Chromium";v="148", "Not A(Brand";v="24"')
         fp.setdefault("sec-ch-ua-mobile", "?0")
         fp.setdefault("sec-ch-ua-platform", '"Windows"')
         return fp
@@ -948,12 +948,8 @@ class OpenAIBackendAPI:
         }
         if thinking_effort:
             payload["thinking_effort"] = thinking_effort
-        response = self.session.post(
-            self.base_url + path,
-            headers=self._image_headers(path, requirements),
-            json=payload,
-            timeout=60,
-        )
+        response = self._fetch("post", self.base_url + path, headers=self._image_headers(path, requirements),
+                               json=payload, timeout=60)
         ensure_ok(response, path)
         return response.json().get("conduit_token", "")
 
@@ -1015,13 +1011,11 @@ class OpenAIBackendAPI:
         width, height = image.size
         mime_type = Image.MIME.get(image.format, "image/png")
         path = "/backend-api/files"
-        response = self.session.post(
-            self.base_url + path,
-            headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
-            json={"file_name": file_name, "file_size": len(data), "use_case": "multimodal", "width": width,
-                  "height": height},
-            timeout=60,
-        )
+        response = self._fetch("post", self.base_url + path,
+                               headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
+                               json={"file_name": file_name, "file_size": len(data), "use_case": "multimodal",
+                                     "width": width, "height": height},
+                               timeout=60)
         ensure_ok(response, path)
         upload_meta = response.json()
         response = self.session.put(
@@ -1041,12 +1035,9 @@ class OpenAIBackendAPI:
         )
         ensure_ok(response, "image_upload")
         path = f"/backend-api/files/{upload_meta['file_id']}/uploaded"
-        response = self.session.post(
-            self.base_url + path,
-            headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
-            data="{}",
-            timeout=60,
-        )
+        response = self._fetch("post", self.base_url + path,
+                               headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
+                               data="{}", timeout=60)
         ensure_ok(response, path)
         return {
             "file_id": upload_meta["file_id"],
@@ -1130,13 +1121,9 @@ class OpenAIBackendAPI:
         if thinking_effort:
             payload["thinking_effort"] = thinking_effort
         path = "/backend-api/f/conversation"
-        response = self.session.post(
-            self.base_url + path,
-            headers=self._image_headers(path, requirements, conduit_token, "text/event-stream"),
-            json=payload,
-            timeout=300,
-            stream=True,
-        )
+        response = self._fetch("post", self.base_url + path,
+                               headers=self._image_headers(path, requirements, conduit_token, "text/event-stream"),
+                               json=payload, timeout=300, stream=True)
         ensure_ok(response, path)
         return response
 
@@ -2749,6 +2736,32 @@ class OpenAIBackendAPI:
             except Exception:
                 pass
 
+    @staticmethod
+    def _is_cloudflare_challenge(response: Any) -> bool:
+        """Cloudflare 挑战页：状态码 >= 400 且带 cf-mitigated: challenge。"""
+        if getattr(response, "status_code", 0) < 400:
+            return False
+        headers = getattr(response, "headers", None)
+        value = str(headers.get("cf-mitigated") or "") if headers is not None else ""
+        return value.strip().lower() == "challenge"
+
+    def _fetch(self, method: str, url: str, **kwargs: Any) -> Any:
+        """发请求；若被 Cloudflare 挑战则原样重试一次。
+
+        挑战响应的 Set-Cookie 会带上 clearance，重试即可拿到真实内容；
+        不重试的话后面 `/backend-api/f/conversation` 会返回 403 Unusual activity。
+        """
+        request = getattr(self.session, method)
+        response = request(url, **kwargs)
+        if self._is_cloudflare_challenge(response):
+            try:
+                response.close()
+            except Exception:
+                pass
+            logger.info({"event": "cloudflare_challenge_retry", "method": method, "url": url})
+            response = request(url, **kwargs)
+        return response
+
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用（按代理出口缓存 5 分钟）。"""
         try:
@@ -2762,11 +2775,7 @@ class OpenAIBackendAPI:
                 self.pow_script_sources = list(entry[1])
                 self.pow_data_build = entry[2]
                 return
-        response = self.session.get(
-            self.base_url + "/",
-            headers=self._bootstrap_headers(),
-            timeout=30,
-        )
+        response = self._fetch("get", self.base_url + "/", headers=self._bootstrap_headers(), timeout=30)
         ensure_ok(response, "bootstrap")
         self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
         if not self.pow_script_sources:
@@ -2780,12 +2789,9 @@ class OpenAIBackendAPI:
         p_token = build_legacy_requirements_token(self.user_agent, self.pow_script_sources, self.pow_data_build)
 
         prepare_path = base + "/prepare"
-        response = self.session.post(
-            self.base_url + prepare_path,
-            headers=self._headers(prepare_path, {"Content-Type": "application/json"}),
-            json={"p": p_token},
-            timeout=30,
-        )
+        response = self._fetch("post", self.base_url + prepare_path,
+                               headers=self._headers(prepare_path, {"Content-Type": "application/json"}),
+                               json={"p": p_token}, timeout=30)
         ensure_ok(response, "chat_requirements_prepare")
         prepare_data = response.json()
 
@@ -2809,16 +2815,15 @@ class OpenAIBackendAPI:
             turnstile_token = solve_turnstile_token(turnstile_info["dx"], p_token) or ""
 
         finalize_path = base + "/finalize"
-        response = self.session.post(
-            self.base_url + finalize_path,
-            headers=self._headers(finalize_path, {"Content-Type": "application/json"}),
-            json={
+        response = self._fetch("post", self.base_url + finalize_path,
+                               headers=self._headers(finalize_path, {"Content-Type": "application/json"}),
+                               json={
+                # 键名必须与服务端一致：finalize 读的是 proofofwork / turnstile
                 "prepare_token": prepare_data.get("prepare_token", ""),
-                "proof_token": proof_token,
-                "turnstile_token": turnstile_token,
-            },
-            timeout=30,
-        )
+                **({"proofofwork": proof_token} if proof_token else {}),
+                **({"turnstile": turnstile_token} if turnstile_token else {}),
+                               },
+                               timeout=30)
         ensure_ok(response, "chat_requirements_finalize")
         data = response.json()
 

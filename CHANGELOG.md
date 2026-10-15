@@ -4,6 +4,9 @@
 
 + [修复] 补全全局代理的覆盖范围：codex 生图请求（配置代理后改走 curl_cffi，支持 SOCKS）、Token 刷新、密码重新登录和 OAuth 换 token 现在按「账号代理 > 稳定代理 > 全局代理」取代理，密码重新登录沿用账号自身代理；`sub2api` 服务器、WebDAV、R2 备份、Means 图片存储和 Git 存储（clone / pull / push）此前直连，现在也走全局代理。指向 `127.0.0.1` / `localhost` / `::1` 的自配置服务（含 CPA、AI 审核）保持直连。
 + [调整] 稳定代理运行时的「跳过 SSL 校验」只作用于上游 OpenAI / ChatGPT 请求，不再让 CPA、AI 审核、图片链接拉取等其他出站请求跳过证书校验。
++ [调整] 图片请求默认使用的上游模型由 `gpt-5-5` 改为 `gpt-6`，仍可在设置页「默认请求上游模型名称」修改；`gpt-6` 不属于 `-standard` / `-extended` / `-max` 思考强度后缀，请求体不会带 `thinking_effort`。
++ [修复] 流式请求返回错误状态码时会读取并记录上游真实的报错内容，此前 `/backend-api/f/conversation` 失败时日志里的 `body=` 为空。
++ [修复] 修复网页链路被上游判为不可信客户端、任何模型都返回 `404 Model not found` 的问题：`prepare/finalize` 的证明字段改为服务端要求的 `proofofwork` / `turnstile` 键名，并把客户端指纹从 `chrome110` / Edge 143 升到 `chrome146` / Edge 148（实测 `chrome110` 会被静默降级）。改后 `/backend-api/f/conversation` 返回 200 并已端到端成功出图。
 
 ## 1.8.0 - 2026-07-28
 
