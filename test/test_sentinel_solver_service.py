@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from services.config import DEFAULT_SENTINEL_SOLVER, _normalize_sentinel_solver_settings
 from services.sentinel_solver_service import SentinelSolverService
+from utils.pow import _js_date_string
 
 
 class FakeConfig:
@@ -110,6 +112,22 @@ class SentinelSolverServiceTests(unittest.TestCase):
         service = make_service(enabled=True, url="http://127.0.0.1:8788", key="")
 
         self.assertNotIn("X-Solver-Key", service._headers(service.settings()))
+
+
+class SentinelDateStringTests(unittest.TestCase):
+    """指纹里的 `"" + new Date`：UTC 或非 ASCII 时区名都会被上游判为不可信（404 Model not found）。"""
+
+    def test_converts_to_utc_plus_8_with_browser_style_name(self) -> None:
+        moment = datetime(2026, 10, 15, 6, 7, 8, tzinfo=timezone.utc)
+
+        self.assertEqual(_js_date_string(moment), "Thu Oct 15 2026 14:07:08 GMT+0800 (China Standard Time)")
+
+    def test_ignores_process_timezone(self) -> None:
+        # 容器默认 TZ=UTC，结果仍必须是东八区且为 ASCII
+        value = _js_date_string()
+
+        self.assertTrue(value.endswith(" GMT+0800 (China Standard Time)"), value)
+        self.assertTrue(value.isascii(), value)
 
 
 if __name__ == "__main__":

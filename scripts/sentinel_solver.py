@@ -242,6 +242,9 @@ class CdpPage:
 
 # turnstile 资源名带构建 hash，会随上游部署变化；优先运行时发现，这里只是最后的兜底
 FALLBACK_TURNSTILE_URL = "/unauth-mweb/assets/turnstile-DykPLDEM.js"
+# VM 超出自带的 500ms 预算时只返回执行步数；冷启动常见，重试即可
+VM_TIMEOUT_MARK = "turnstile VM timed out"
+VM_TIMEOUT_ATTEMPTS = 3
 
 def _relay_sockets(a: Any, b: Any) -> None:
     """双向拷贝，直到任一端关闭。"""
@@ -481,7 +484,7 @@ class BrowserPool:
         # 浏览器里分层发现：已加载资源 -> 页面脚本 -> 抓 sentinel 模块源码解析 import 说明符。
         script = """
         (async () => {
-          const reqs = %s, key = %s, FALLBACK = %s;
+          const reqs = %s, key = %s, FALLBACK = %s, TIMEOUT_MARK = %s;
           const tried = [];
           const ASSET = (n) => '/unauth-mweb/assets/' + n;
 
@@ -528,24 +531,46 @@ class BrowserPool:
               const mod = await import(url);
               if (!mod || typeof mod.turnstile !== 'object') continue;
               window.__turnstileUrl = url;
+              // getEnforcementToken 第一步先查自己的 tokenCache（也是 WeakMap）。钩子若不跳过它，
+              // 会直接把 p 当成 token 返回，VM 根本不执行——上游拿到的就是一个无效 turnstile。
+              const cache = mod.turnstile.tokenCache;
               const original = WeakMap.prototype.get;
               WeakMap.prototype.get = function (target) {
+                if (this === cache) return original.call(this, target);
                 return target === reqs ? key : original.call(this, target);
               };
-              try { return String(await mod.turnstile.getEnforcementToken(reqs)); }
+              let token = '';
+              try { token = String(await mod.turnstile.getEnforcementToken(reqs) || ''); }
               finally { WeakMap.prototype.get = original; }
+              if (!token) return 'ERR:turnstile VM returned an empty token';
+              if (token === key) return 'ERR:turnstile VM did not run (p echoed back)';
+              // VM 自带 500ms 预算，超时只返回已执行步数（纯数字）
+              if (/^\\d+$/.test(token)) return 'ERR:' + TIMEOUT_MARK + ' after ' + token + ' steps';
+              // VM 内部异常走 btoa("<步数>: <错误>")，同样不是有效 token
+              let decoded = '';
+              try { decoded = atob(token); } catch (error) { /* 正常 token 不一定可解 */ }
+              if (/^\\d+: /.test(decoded)) return 'ERR:turnstile VM error: ' + decoded.slice(0, 160);
+              return token;
             } catch (error) { /* try next */ }
           }
           return 'ERR:cannot load turnstile module; tried=' + JSON.stringify(tried) +
                  '; page=' + location.href;
         })()
-        """ % (json.dumps(requirements), json.dumps(p_token), json.dumps(FALLBACK_TURNSTILE_URL))
-        with self._lock:
-            page = self.page()
-            token = str(page.evaluate(script, timeout=180) or "")
-        if token.startswith("ERR:"):
-            return False, token[4:]
-        return bool(token), token
+        """ % (json.dumps(requirements), json.dumps(p_token), json.dumps(FALLBACK_TURNSTILE_URL),
+               json.dumps(VM_TIMEOUT_MARK))
+        error = ""
+        for attempt in range(1, VM_TIMEOUT_ATTEMPTS + 1):
+            with self._lock:
+                page = self.page()
+                token = str(page.evaluate(script, timeout=180) or "")
+            if not token.startswith("ERR:"):
+                return bool(token), token
+            error = token[4:]
+            # 冷启动时模块/页面还没热，VM 常超出 500ms 预算；页面已加载好，重试即可
+            if VM_TIMEOUT_MARK not in error:
+                break
+            LOG.info("turnstile VM 超时（第 %d/%d 次）: %s", attempt, VM_TIMEOUT_ATTEMPTS, error)
+        return False, error
 
 
 def launch_chrome(cdp_port: int, chrome_bin: str | None, profile_dir: str, proxy: str = "") -> subprocess.Popen:

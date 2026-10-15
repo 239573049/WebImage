@@ -24,11 +24,11 @@ export function BrandMark({ className, hideText = false }: { className?: string;
       <BrandLogo />
       {hideText ? null : (
         <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
-          <span className="truncate text-[17px] font-semibold tracking-tight text-foreground">
+          <span className="truncate text-[16px] font-semibold tracking-tight text-foreground">
             {BRAND_NAME}
             <span className="text-primary">.</span>
           </span>
-          <span className="eyebrow shrink-0 text-[10px] tracking-[0.2em]">Console</span>
+          <span className="eyebrow shrink-0 text-[9.5px] tracking-[0.16em]">Console</span>
         </span>
       )}
     </span>

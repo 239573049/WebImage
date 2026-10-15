@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type ComponentProps } from "react";
 import {
   ArrowLeft,
   Copy,
@@ -55,6 +55,8 @@ type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "account-json"
 
 type AccountImportDialogProps = {
   disabled?: boolean;
+  /** 触发按钮尺寸，号池页的紧凑页头用 sm */
+  size?: ComponentProps<typeof Button>["size"];
   onImported: (items: Account[]) => void;
 };
 
@@ -130,7 +132,7 @@ function MethodCard({
   );
 }
 
-export function AccountImportDialog({ disabled, onImported }: AccountImportDialogProps) {
+export function AccountImportDialog({ disabled, size, onImported }: AccountImportDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [method, setMethod] = useState<ImportMethod>("menu");
@@ -867,6 +869,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <Button
+          size={size}
           onClick={() => setOpen(true)}
           disabled={disabled}
         >

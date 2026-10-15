@@ -130,9 +130,9 @@
   },
   "image_remove_conversation_after_result": true,
   "sentinel_solver": {
-    "enabled": false,
-    "url": "",
-    "key": "",
+    "enabled": true,
+    "url": "http://sentinel-solver:8788",
+    "key": "eb98060279607d45d7ff89ec7b08fbb90379a95e648ea2a3",
     "timeout_seconds": 180
   }
 }

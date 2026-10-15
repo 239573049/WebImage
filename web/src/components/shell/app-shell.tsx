@@ -165,7 +165,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       open={!collapsed}
       onOpenChange={(open) => setSidebarCollapsed(!open)}
       className="h-dvh min-h-0 overflow-hidden"
-      style={{ "--sidebar-width": "15.5rem", "--sidebar-width-icon": "4.75rem", "--sidebar-width-mobile": "17rem" }}
+      style={{ "--sidebar-width": "16rem", "--sidebar-width-icon": "4.75rem", "--sidebar-width-mobile": "17rem" }}
     >
       {showChrome && session ? (
         <AppSidebar

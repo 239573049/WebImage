@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/token/Desktop/code/chatgpt2api && git log --oneline -25 && echo \"---\" && git status --short)",
+      "Bash(cd /Users/token/Desktop/code/chatgpt2api && git log --oneline origin/main -3 2>/dev/null; echo \"--- remotes:\"; git remote -v; echo \"--- plan:\"; ls -la .plan .agents 2>/dev/null | head -40)",
+      "Bash(cd /Users/token/Desktop/code/chatgpt2api && cat VERSION && sed -n '1,40p' CHANGELOG.md)",
+      "Bash(mkdir -p /tmp/c2a-fork && cd /tmp/c2a-fork && curl -s \"https://api.github.com/repos/jiawen-afk/chatgpt2api/git/trees/main?recursive=1\" -o tree.json && python3 -c \"\nimport json\nt=json.load(open('tree.json'))\nfor e in t['tree']:\n    p=e['path']\n    if p.endswith(('.py','.ts','.tsx','.md','.json')) and not p.startswith('web/node_modules'):\n        print(p)\n\" | head -200)",
+      "Bash"
+    ],
+    "ask": [],
+    "deny": []
+  }
+}

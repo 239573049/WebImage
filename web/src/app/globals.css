@@ -50,105 +50,105 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* 浅色：冷灰底 + 纯白卡片 + 发丝描边                                    */
+/* 浅色：Apple 中性灰底（#f5f5f7）+ 纯白卡片，强调色用系统色             */
+/* 绿 / 橙 / 青 / 紫会当文字用，取 Apple「增强对比度」那一档，白底上可读  */
 /* ------------------------------------------------------------------ */
 :root {
   color-scheme: light;
 
-  --background: #f4f6fa;
-  --foreground: #0f1729;
+  --background: #f5f5f7;
+  --foreground: #1d1d1f;
   --card: #ffffff;
-  --card-foreground: #0f1729;
+  --card-foreground: #1d1d1f;
   --popover: #ffffff;
-  --popover-foreground: #0f1729;
-  --primary: #1e6ef4;
+  --popover-foreground: #1d1d1f;
+  --primary: #007aff;
   --primary-foreground: #ffffff;
-  --secondary: rgb(15 23 41 / 0.055);
-  --secondary-foreground: #0f1729;
-  --muted: rgb(15 23 41 / 0.035);
-  --muted-foreground: #667085;
-  --accent: rgb(15 23 41 / 0.045);
-  --accent-foreground: #0f1729;
-  --destructive: #e5484d;
-  --success: #16a34a;
-  --warning: #d97706;
-  --info: #0284c7;
-  --violet: #7c3aed;
-  --border: rgb(15 23 41 / 0.085);
-  --border-strong: rgb(15 23 41 / 0.16);
-  --input: rgb(15 23 41 / 0.13);
-  --ring: rgb(30 110 244 / 0.45);
+  --secondary: rgb(118 118 128 / 0.12);
+  --secondary-foreground: #1d1d1f;
+  --muted: rgb(118 118 128 / 0.08);
+  --muted-foreground: #6e6e73;
+  --accent: rgb(118 118 128 / 0.1);
+  --accent-foreground: #1d1d1f;
+  --destructive: #ff3b30;
+  --success: #248a3d;
+  --warning: #c93400;
+  --info: #0071a4;
+  --violet: #8944ab;
+  --border: rgb(60 60 67 / 0.12);
+  --border-strong: rgb(60 60 67 / 0.22);
+  --input: rgb(60 60 67 / 0.18);
+  --ring: rgb(0 122 255 / 0.4);
   --field: #ffffff;
-  --field-hover: #f8fafc;
+  --field-hover: #fafafa;
   --segment: #ffffff;
-  --chart-grid: rgb(15 23 41 / 0.07);
+  --chart-grid: rgb(60 60 67 / 0.08);
 
   --sidebar: #ffffff;
-  --sidebar-foreground: #0f1729;
-  --sidebar-border: rgb(15 23 41 / 0.08);
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-border: rgb(60 60 67 / 0.1);
 
-  --surface-shadow: 0 1px 2px rgb(15 23 41 / 0.04);
+  --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
   --raised-bg: #ffffff;
-  --raised-shadow: 0 1px 2px rgb(15 23 41 / 0.04), 0 24px 56px -32px rgb(15 23 41 / 0.28);
-  --chrome-bg: rgb(255 255 255 / 0.86);
-  --chrome-shadow: 0 1px 2px rgb(15 23 41 / 0.04), 0 12px 32px -24px rgb(15 23 41 / 0.2);
-  --overlay-shadow: 0 24px 64px -24px rgb(15 23 41 / 0.32);
-  --scrollbar-thumb: rgb(15 23 41 / 0.18);
+  --raised-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 24px 56px -32px rgb(0 0 0 / 0.22);
+  --chrome-bg: rgb(255 255 255 / 0.8);
+  --chrome-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px -24px rgb(0 0 0 / 0.16);
+  --overlay-shadow: 0 24px 64px -24px rgb(0 0 0 / 0.28);
+  --scrollbar-thumb: rgb(60 60 67 / 0.24);
 
-  --page-bg:
-    radial-gradient(1100px 620px at 0% -10%, rgb(30 110 244 / 0.07), transparent 62%),
-    radial-gradient(900px 520px at 100% 0%, rgb(124 58 237 / 0.035), transparent 60%), #f4f6fa;
+  /* apple.com 的做法：顶部 #fbfbfd 往下过渡到 #f5f5f7，没有任何色相 */
+  --page-bg: linear-gradient(180deg, #fbfbfd 0, #f5f5f7 480px) #f5f5f7;
 }
 
 /* ------------------------------------------------------------------ */
-/* 深色：深海军蓝底 + 低一档的卡片面 + 发丝描边，只有数据和主色是亮的     */
+/* 深色：Apple 中性深灰（#161617 页面 / #1c1c1e 卡片 / #2c2c2e 弹层），  */
+/* 不带蓝色调，只有数据和系统蓝是亮的                                   */
 /* ------------------------------------------------------------------ */
 .dark {
   color-scheme: dark;
 
-  --background: #0a0f17;
-  --foreground: #e7ebf3;
-  --card: #101724;
-  --card-foreground: #e7ebf3;
-  --popover: #131b29;
-  --popover-foreground: #e7ebf3;
-  --primary: #2e7dff;
+  --background: #161617;
+  --foreground: #f5f5f7;
+  --card: #1c1c1e;
+  --card-foreground: #f5f5f7;
+  --popover: #2c2c2e;
+  --popover-foreground: #f5f5f7;
+  --primary: #0a84ff;
   --primary-foreground: #ffffff;
-  --secondary: rgb(255 255 255 / 0.065);
-  --secondary-foreground: #e7ebf3;
-  --muted: rgb(255 255 255 / 0.04);
-  --muted-foreground: #8b95a8;
-  --accent: rgb(255 255 255 / 0.055);
-  --accent-foreground: #f2f5fa;
-  --destructive: #f25d5d;
-  --success: #34d27b;
-  --warning: #f5a524;
-  --info: #38bdf8;
-  --violet: #a78bfa;
-  --border: rgb(255 255 255 / 0.075);
-  --border-strong: rgb(255 255 255 / 0.14);
-  --input: rgb(255 255 255 / 0.11);
-  --ring: rgb(46 125 255 / 0.6);
-  --field: rgb(255 255 255 / 0.03);
-  --field-hover: rgb(255 255 255 / 0.055);
-  --segment: rgb(255 255 255 / 0.09);
-  --chart-grid: rgb(255 255 255 / 0.06);
+  --secondary: rgb(118 118 128 / 0.24);
+  --secondary-foreground: #f5f5f7;
+  --muted: rgb(118 118 128 / 0.16);
+  --muted-foreground: #98989d;
+  --accent: rgb(255 255 255 / 0.06);
+  --accent-foreground: #f5f5f7;
+  --destructive: #ff453a;
+  --success: #30d158;
+  --warning: #ff9f0a;
+  --info: #64d2ff;
+  --violet: #bf5af2;
+  --border: rgb(255 255 255 / 0.08);
+  --border-strong: rgb(255 255 255 / 0.16);
+  --input: rgb(255 255 255 / 0.12);
+  --ring: rgb(10 132 255 / 0.6);
+  --field: rgb(255 255 255 / 0.04);
+  --field-hover: rgb(255 255 255 / 0.07);
+  --segment: rgb(255 255 255 / 0.12);
+  --chart-grid: rgb(255 255 255 / 0.07);
 
-  --sidebar: #0e1521;
-  --sidebar-foreground: #e7ebf3;
+  --sidebar: #1c1c1e;
+  --sidebar-foreground: #f5f5f7;
   --sidebar-border: rgb(255 255 255 / 0.08);
 
-  --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.02);
-  --raised-bg: #121a28;
-  --raised-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 24px 60px -28px rgb(0 0 0 / 0.7);
-  --chrome-bg: rgb(15 22 34 / 0.82);
-  --chrome-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 12px 32px -20px rgb(0 0 0 / 0.6);
-  --overlay-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.75);
-  --scrollbar-thumb: rgb(255 255 255 / 0.16);
+  --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --raised-bg: #1c1c1e;
+  --raised-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 24px 60px -28px rgb(0 0 0 / 0.75);
+  --chrome-bg: rgb(30 30 32 / 0.78);
+  --chrome-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 12px 32px -20px rgb(0 0 0 / 0.6);
+  --overlay-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.8);
+  --scrollbar-thumb: rgb(255 255 255 / 0.2);
 
-  --page-bg:
-    radial-gradient(1200px 640px at 0% -12%, rgb(46 125 255 / 0.11), transparent 62%),
-    radial-gradient(900px 600px at 100% 110%, rgb(46 125 255 / 0.05), transparent 60%), #0a0f17;
+  /* 只留一层很淡的中性高光，让页面顶部不至于死黑 */
+  --page-bg: radial-gradient(1400px 700px at 50% -20%, rgb(255 255 255 / 0.035), transparent 70%) #161617;
 }
 
 :root {
@@ -182,7 +182,7 @@
   }
 
   ::selection {
-    background: rgb(46 125 255 / 0.3);
+    background: rgb(0 122 255 / 0.3);
   }
 
   button,

@@ -15,7 +15,7 @@ import random
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Any, Sequence
 
@@ -32,6 +32,12 @@ DEFAULT_JS_HEAP_LIMIT = 4395630592    # performance.memory.jsHeapSizeLimit
 DEFAULT_HARDWARE_CONCURRENCY = 10     # navigator.hardwareConcurrency
 DEFAULT_LANGUAGES = ["zh-CN", "en", "en-GB", "en-US"]   # navigator.languages
 DEFAULT_LANGUAGE = "zh-CN"            # navigator.language
+
+# 指纹里 `"" + new Date` 的时区：与请求体声明的 Asia/Shanghai（timezone_offset_min=-480）一致。
+# 实测（2026-10-15）：UTC 一律 404；时区名必须是 ASCII（Chrome 英文环境的写法），
+# 「中国标准时间」这类本地化名称同样 404。
+SENTINEL_TIMEZONE = timezone(timedelta(hours=8))
+SENTINEL_TIMEZONE_NAME = "China Standard Time"
 
 # document / window / navigator 三类「探测项」的候选值（SDK 各随机取一个）
 DOCUMENT_KEYS = ["__reactContainer$fzelfjyxej8", "_reactListening5dehydibo78", "location"]
@@ -128,10 +134,14 @@ def _serialize(value: Any) -> str:
     return _btoa(_to_json(value))
 
 
-def _js_date_string() -> str:
-    """等价于 JS `"" + new Date`，例如 `Thu Oct 15 2026 14:07:06 GMT+0800 (中国标准时间)`。"""
-    now = datetime.now().astimezone()
-    return f"{now.strftime('%a %b %d %Y %H:%M:%S')} GMT{now.strftime('%z')} ({now.tzname() or 'UTC'})"
+def _js_date_string(now: datetime | None = None) -> str:
+    """等价于 JS `"" + new Date`，例如 `Thu Oct 15 2026 14:07:06 GMT+0800 (China Standard Time)`。
+
+    固定按东八区生成，不读进程本地时区：容器默认是 UTC，而上游（2026-10-15 起）会把
+    UTC 时区的指纹判为不可信，`/f/conversation` 直接返回 404 Model not found。
+    """
+    current = (now or datetime.now(SENTINEL_TIMEZONE)).astimezone(SENTINEL_TIMEZONE)
+    return f"{current.strftime('%a %b %d %Y %H:%M:%S')} GMT{current.strftime('%z')} ({SENTINEL_TIMEZONE_NAME})"
 
 
 def _fnv1a_32_hex(text: str) -> str:
