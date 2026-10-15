@@ -23,6 +23,10 @@ class ProxyPoolAddRequest(BaseModel):
     name: str = ""
 
 
+class ProxyPoolBatchDeleteRequest(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
 class ProxyPoolUpdateRequest(BaseModel):
     name: str | None = None
     url: str | None = None
@@ -162,6 +166,33 @@ def create_router() -> APIRouter:
                 "errors": errors,
                 "assigned": assigned,
                 "core_apply": core_apply,
+            }
+
+        return await run_in_threadpool(apply)
+
+    @router.post("/api/proxy/pool/batch-delete")
+    async def batch_delete_proxy_pool_entries(
+            body: ProxyPoolBatchDeleteRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        # 注意路由顺序：必须注册在 /api/proxy/pool/{proxy_id} 之前
+        if not any(str(pid or "").strip() for pid in body.ids):
+            raise HTTPException(status_code=400, detail={"error": "请至少选择一个代理"})
+
+        def apply() -> dict:
+            result = proxy_pool.delete_entries(body.ids)
+            deleted = result["deleted"]
+            reassigned = 0
+            for entry in deleted:
+                # 与单条删除一致：名下账号改绑到其他代理，订阅导入的释放内核端口
+                reassigned += account_service.reassign_proxy_bindings(entry["id"])
+                proxy_subscriptions.on_proxy_deleted(entry)
+            return {
+                **build_pool_payload(),
+                "deleted": len(deleted),
+                "missing": result["missing"],
+                "reassigned": reassigned,
             }
 
         return await run_in_threadpool(apply)
