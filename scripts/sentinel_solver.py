@@ -205,17 +205,32 @@ class CdpPage:
                                f"{(detail.get('exception') or {}).get('description', '')}"[:300])
         return (result.get("result") or {}).get("value")
 
-    def open(self, url: str) -> None:
-        self.send("Page.navigate", {"url": url})
-        deadline = time.time() + 45
-        while time.time() < deadline:
-            try:
-                if self.evaluate("document.readyState === 'complete'", timeout=10):
-                    return
-            except Exception:
-                pass
-            time.sleep(0.4)
-        raise TimeoutError("page did not load")
+    def current_url(self) -> str:
+        try:
+            return str(self.evaluate("location.href", timeout=10) or "")
+        except Exception:
+            return ""
+
+    def open(self, url: str, attempts: int = 3) -> None:
+        """打开页面；Chrome 加载失败会停在 chrome-error:// 页，这里检测并重试。"""
+        last = ""
+        for attempt in range(1, attempts + 1):
+            self.send("Page.navigate", {"url": url})
+            deadline = time.time() + 45
+            while time.time() < deadline:
+                try:
+                    if self.evaluate("document.readyState === 'complete'", timeout=10):
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.4)
+            last = self.current_url()
+            if last.startswith("chrome-error://"):
+                LOG.warning("页面加载失败（第 %d/%d 次）: %s", attempt, attempts, last)
+                time.sleep(2)
+                continue
+            return
+        raise RuntimeError(f"页面无法加载: {url}（最后停在 {last or 'unknown'}）")
 
     def close(self) -> None:
         self.sock.close()
@@ -227,6 +242,160 @@ class CdpPage:
 
 # turnstile 资源名带构建 hash，会随上游部署变化；优先运行时发现，这里只是最后的兜底
 FALLBACK_TURNSTILE_URL = "/unauth-mweb/assets/turnstile-DykPLDEM.js"
+
+def _relay_sockets(a: Any, b: Any) -> None:
+    """双向拷贝，直到任一端关闭。"""
+    def pump(src: Any, dst: Any) -> None:
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except Exception:
+            pass
+        finally:
+            for sock in (src, dst):
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+    threading.Thread(target=pump, args=(a, b), daemon=True).start()
+    pump(b, a)
+
+
+def make_page_proxy(proxy: str) -> tuple[str, Any | None]:
+    """返回给页面使用的代理地址。
+
+    Chrome 的 --proxy-server 不接受 user:pass@ 形式（会直接停在 chrome-error 页），
+    因此带认证时在本地起一个转发端口：页面连它，它再带凭据连真正的代理。
+    """
+    if not proxy:
+        return "", None
+    parsed = urlparse(proxy if "://" in proxy else "http://" + proxy)
+    if not parsed.username:
+        return proxy, None                     # 无认证：Chrome 直接支持
+    try:
+        import base64
+        from curl_cffi import requests as curl_requests
+    except Exception:
+        LOG.warning("代理带认证但缺少 curl_cffi，无法转发，页面将直连")
+        return "", None
+
+    upstream_host = parsed.hostname or ""
+    upstream_port = parsed.port or 80
+    upstream_auth = "Basic " + base64.b64encode(
+        f"{parsed.username}:{parsed.password or ''}".encode()
+    ).decode()
+    upstream_scheme = (parsed.scheme or "http").lower()
+
+    class _Relay(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args: Any) -> None:
+            return
+
+        def _read_head(self) -> tuple[str, str, dict[str, str], bytes]:
+            raw = b""
+            while b"\r\n\r\n" not in raw:
+                chunk = self.rfile.read(1)
+                if not chunk:
+                    break
+                raw += chunk
+            head, _, rest = raw.partition(b"\r\n\r\n")
+            lines = head.decode("latin1").split("\r\n")
+            if not lines or not lines[0]:
+                return "", "", {}, b""
+            parts = lines[0].split(" ")
+            method, target = parts[0], (parts[1] if len(parts) > 1 else "")
+            headers: dict[str, str] = {}
+            for line in lines[1:]:
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    headers[key.strip().lower()] = value.strip()
+            return method, target, headers, rest
+
+        def _tunnel(self, target: str) -> None:
+            """CONNECT：先与上游代理建立隧道（带凭据），再原样透传。"""
+            try:
+                upstream = socket.create_connection((upstream_host, upstream_port), timeout=30)
+                upstream.settimeout(30)
+                request = (f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n"
+                           f"Proxy-Authorization: {upstream_auth}\r\n\r\n")
+                upstream.sendall(request.encode())
+                response = b""
+                while b"\r\n\r\n" not in response:
+                    chunk = upstream.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                status = response.split(b"\r\n", 1)[0]
+                if b" 200" not in status:
+                    LOG.debug("上游 CONNECT 被拒: %s", status[:60])
+                    self.send_error(502, "upstream rejected tunnel")
+                    upstream.close()
+                    return
+                self.wfile.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                self.wfile.flush()
+                _relay_sockets(self.connection, upstream)
+            except Exception as exc:
+                LOG.debug("CONNECT 转发失败 %s: %s", target, str(exc)[:150])
+                try:
+                    self.send_error(502, "tunnel failed")
+                except Exception:
+                    pass
+
+        def _forward(self, method: str) -> None:
+            """http 请求：交给 curl_cffi 带上游凭据转发。"""
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length else None
+            headers = {k: v for k, v in self.headers.items() if k.lower() != "proxy-authorization"}
+            try:
+                response = curl_requests.request(method, self.path, headers=headers, data=body,
+                                                 proxy=proxy, verify=True, timeout=60)
+                payload = response.content
+                self.send_response(response.status_code)
+                for name, value in response.headers.items():
+                    if name.lower() in ("content-length", "transfer-encoding", "connection"):
+                        continue
+                    self.send_header(name, value)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            except Exception as exc:
+                LOG.debug("转发失败 %s: %s", self.path[:80], str(exc)[:150])
+                try:
+                    self.send_error(502, "proxy error")
+                except Exception:
+                    pass
+
+        def do_CONNECT(self) -> None:      # noqa: N802
+            self._tunnel(self.path)
+
+        def do_GET(self) -> None:          # noqa: N802
+            self._forward("GET")
+
+        def do_POST(self) -> None:         # noqa: N802
+            self._forward("POST")
+
+        def do_PUT(self) -> None:          # noqa: N802
+            self._forward("PUT")
+
+        def do_HEAD(self) -> None:         # noqa: N802
+            self._forward("HEAD")
+
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Relay)
+    except Exception as exc:
+        LOG.warning("本地代理端口启动失败: %s", str(exc)[:150])
+        return "", None
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    local = f"http://127.0.0.1:{server.server_address[1]}"
+    LOG.info("代理带认证：已在本机 %s 起转发（%s，浏览器不直接持有凭据）",
+             local, upstream_scheme)
+    return local, server.shutdown
+
 
 DEFAULT_CHROME_CANDIDATES = [
     os.path.expanduser("~/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/"
@@ -514,8 +683,10 @@ def main() -> int:
     if not args.no_launch:
         Path(args.profile_dir).mkdir(parents=True, exist_ok=True)
 
+        page_proxy, _proxy_cleanup = make_page_proxy(args.proxy)
+
         def launcher():                   # noqa: ANN202
-            return launch_chrome(args.cdp_port, args.chrome or None, args.profile_dir, args.proxy)
+            return launch_chrome(args.cdp_port, args.chrome or None, args.profile_dir, page_proxy)
 
         try:
             process = launcher()
@@ -526,7 +697,7 @@ def main() -> int:
     pool = BrowserPool(args.cdp_port, args.page_url, args.user_agent or None, launcher=launcher)
     try:
         pool.page()                       # 预热
-        LOG.info("浏览器就绪，页面已加载")
+        LOG.info("浏览器就绪，页面已加载: %s", pool._page.current_url() if pool._page else "?")
     except Exception as exc:
         LOG.warning("预热失败（首个请求会重试）: %s", str(exc)[:400])
 
