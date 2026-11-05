@@ -20,6 +20,7 @@ from utils.helper import anthropic_sse_stream, sse_json_stream
 
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
+LOG_TYPE_REVIEW = "review"
 INTERNAL_RESPONSE_KEYS = {"_account_email", "_conversation_id"}
 # 深翻页时的扫描上限，避免筛选条件命中极少时把整个日志文件读完
 MAX_SCAN_LINES = 200_000

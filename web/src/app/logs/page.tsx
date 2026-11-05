@@ -26,11 +26,13 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 const LogType = {
   Call: "call",
   Account: "account",
+  Review: "review",
 } as const;
 
 const typeLabels: Record<string, string> = {
   [LogType.Call]: "调用日志",
   [LogType.Account]: "账号管理日志",
+  [LogType.Review]: "内容审核日志",
 };
 
 const pageSizeOptions = [10, 20, 50, 100];
@@ -157,7 +159,7 @@ function LogsContent() {
       <PageHeader
         eyebrow="Observability"
         title="日志管理"
-        description="实时调用指标每 10 秒刷新；下方可按类型和日期查询调用日志与账号操作日志。"
+        description="实时调用指标每 10 秒刷新；下方可按类型和日期查询调用日志、账号操作日志与内容审核日志。"
         actions={
           <>
             <Select value={type} onValueChange={setType}>
@@ -165,6 +167,7 @@ function LogsContent() {
               <SelectContent>
                 <SelectItem value={LogType.Call}>调用日志</SelectItem>
                 <SelectItem value={LogType.Account}>账号管理日志</SelectItem>
+                <SelectItem value={LogType.Review}>内容审核日志</SelectItem>
               </SelectContent>
             </Select>
             <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
