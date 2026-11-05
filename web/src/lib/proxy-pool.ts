@@ -46,7 +46,16 @@ export function isProxyUnavailable(item: Pick<ProxyPoolItem, "enabled" | "health
 
 /** 只保留接口返回的三块数据，丢掉 added / result 之类的附加字段 */
 export function pickProxyPoolPayload(data: ProxyPoolPayload): ProxyPoolPayload {
-  return { settings: data.settings, items: data.items, summary: data.summary };
+  return {
+    settings: data.settings,
+    items: data.items,
+    summary: data.summary,
+    total: data.total,
+    page: data.page,
+    page_size: data.page_size,
+    page_count: data.page_count,
+    duplicate_exit_ips: data.duplicate_exit_ips,
+  };
 }
 
 export function formatProxyTime(value?: string | null) {

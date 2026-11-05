@@ -1167,6 +1167,12 @@ export type ProxyPoolPayload = {
   settings: ProxyPoolSettings;
   items: ProxyPoolItem[];
   summary: ProxyPoolSummary;
+  /** 以下字段仅在分页请求时返回：total 为过滤后的条目数，duplicate_exit_ips 基于全部条目 */
+  total?: number;
+  page?: number;
+  page_size?: number;
+  page_count?: number;
+  duplicate_exit_ips?: Record<string, number>;
 };
 
 export type ProxyPoolTestResult = {
@@ -1179,6 +1185,13 @@ export type ProxyPoolTestResult = {
 
 export async function fetchProxyPool() {
   return httpRequest<ProxyPoolPayload>("/api/proxy/pool");
+}
+
+/** 服务端分页的代理池条目 */
+export async function fetchProxyPoolPage({ page, pageSize, query }: { page: number; pageSize: number; query?: string }) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (query?.trim()) params.set("q", query.trim());
+  return httpRequest<ProxyPoolPayload>(`/api/proxy/pool?${params.toString()}`);
 }
 
 export async function updateProxyPoolSettings(settings: Partial<ProxyPoolSettings>) {

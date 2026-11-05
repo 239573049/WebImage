@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageEnter } from "@/components/page-enter";
 import { PageLoader } from "@/components/page-loader";
+import { SearchInput } from "@/components/search-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   batchDeleteProxyPoolEntries,
   deleteProxyPoolEntry,
-  fetchProxyPool,
+  fetchProxyPoolPage,
   fetchProxySubscriptions,
   testProxyPoolEntry,
   updateProxyPoolEntry,
@@ -36,6 +37,7 @@ import { ProxyProbeSettingsCard } from "./components/proxy-probe-settings-card";
 import { ProxySubscriptionsPanel } from "./components/proxy-subscriptions-panel";
 
 const POLL_INTERVAL = 10_000;
+const POOL_PAGE_SIZE = 20;
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -53,6 +55,12 @@ function addToSet(set: Set<string>, id: string, add: boolean) {
 
 function ProxiesPageContent() {
   const [pool, setPool] = useState<ProxyPoolPayload | null>(null);
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // 轮询 / 变更后的回调要读最新的页码和搜索词，放进 ref 避免闭包过期
+  const listParamsRef = useRef({ page: 1, pageSize: POOL_PAGE_SIZE, query: "" });
+  listParamsRef.current = { page, pageSize: POOL_PAGE_SIZE, query: debouncedQuery };
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [isTogglingPool, setIsTogglingPool] = useState(false);
@@ -75,24 +83,30 @@ function ProxiesPageContent() {
   const [subscriptionsError, setSubscriptionsError] = useState("");
   const subscriptionsVersionRef = useRef(0);
 
+  // 变更接口返回的是全量列表：只取 settings / summary，当前页条目重新向服务端取
   const applyPayload = useCallback((data: ProxyPoolPayload) => {
     versionRef.current += 1;
-    setPool(pickProxyPoolPayload(data));
+    setPool((current) => (current ? { ...current, settings: data.settings, summary: data.summary } : current));
     setLoadError("");
+    void loadPoolRef.current(true);
   }, []);
 
+  const loadPoolRef = useRef<(silent?: boolean) => Promise<void>>(async () => {});
   const loadPool = useCallback(async (silent = false) => {
     const version = ++versionRef.current;
     if (!silent) {
       setIsLoading(true);
     }
     try {
-      const data = await fetchProxyPool();
+      const data = await fetchProxyPoolPage(listParamsRef.current);
       if (version !== versionRef.current) {
         return;
       }
       setPool(pickProxyPoolPayload(data));
       setLoadError("");
+      if (data.page && data.page !== listParamsRef.current.page) {
+        setPage(data.page); // 删除后当前页超出范围，服务端已修正
+      }
     } catch (error) {
       if (version !== versionRef.current) {
         return;
@@ -108,6 +122,23 @@ function ProxiesPageContent() {
       }
     }
   }, []);
+  loadPoolRef.current = loadPool;
+
+  // 搜索防抖；页码或搜索词变化时清空选区（选区只对当前页有效）并重新取数
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return; // 首次加载由轮询 effect 负责
+    }
+    setSelectedIds(new Set());
+    void loadPool(true);
+  }, [page, debouncedQuery, loadPool]);
 
   // 订阅列表的错误不弹 toast（例如后端还没有这个接口），只在订阅页里显示
   const loadSubscriptions = useCallback(async () => {
@@ -185,6 +216,13 @@ function ProxiesPageContent() {
   const settings = pool?.settings ?? null;
   const items = pool?.items ?? [];
   const poolEnabled = Boolean(settings?.enabled);
+  const totalProxies = pool?.summary.total ?? 0;
+  const filteredTotal = pool?.total ?? items.length;
+  const pageCount = Math.max(1, pool?.page_count ?? 1);
+  const duplicateIps = useMemo(
+    () => new Map(Object.entries(pool?.duplicate_exit_ips ?? {})),
+    [pool?.duplicate_exit_ips],
+  );
 
   // 轮询/删除后条目可能已不在池里，把选区里失效的 id 清掉
   useEffect(() => {
@@ -392,7 +430,7 @@ function ProxiesPageContent() {
         <TabsList aria-label="代理池视图">
           <TabsTrigger value="pool">
             代理
-            <span className="text-xs tabular-nums opacity-70">{items.length}</span>
+            <span className="text-xs tabular-nums opacity-70">{totalProxies}</span>
           </TabsTrigger>
           <TabsTrigger value="subscriptions">
             订阅
@@ -415,12 +453,28 @@ function ProxiesPageContent() {
                   </Button>
                 </div>
               ) : (
+                <>
+                  {totalProxies > 0 ? (
+                    <div className="flex items-center justify-end border-b border-border px-3.5 py-2">
+                      <SearchInput
+                        size="sm"
+                        value={query}
+                        onValueChange={(value) => {
+                          setQuery(value);
+                          setPage(1);
+                        }}
+                        placeholder="搜索名称 / 出口 IP / 订阅"
+                        className="w-full sm:w-[260px]"
+                      />
+                    </div>
+                  ) : null}
                 <ProxyPoolTable
                   items={items}
                   isLoading={isLoading && !pool}
                   pendingIds={pendingIds}
                   testingIds={testingIds}
                   selectedIds={selectedIds}
+                  duplicateIps={duplicateIps}
                   onSelectedIdsChange={setSelectedIds}
                   onToggle={(item, enabled) => void handleToggleItem(item, enabled)}
                   onTest={(item) => void handleTestItem(item)}
@@ -428,10 +482,34 @@ function ProxiesPageContent() {
                   onDelete={setDeletingItem}
                   onAdd={() => setIsAddOpen(true)}
                 />
+                </>
               )}
-              {items.length > 0 ? (
+              {totalProxies > 0 ? (
                 <div className="flex min-h-[36px] flex-wrap items-center justify-between gap-2 border-t border-border px-3.5 py-2 text-xs text-muted-foreground tabular-nums">
-                  <span>共 {items.length} 个代理</span>
+                  <span>{debouncedQuery.trim() ? `匹配 ${filteredTotal} 个，共 ${totalProxies} 个代理` : `共 ${totalProxies} 个代理`}</span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      className="size-7 rounded-md"
+                      aria-label="上一页"
+                      disabled={page <= 1}
+                      onClick={() => setPage((value) => Math.max(1, value - 1))}
+                    >
+                      <ChevronLeft className="size-3.5" />
+                    </Button>
+                    <span>第 {Math.min(page, pageCount)} / {pageCount} 页</span>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      className="size-7 rounded-md"
+                      aria-label="下一页"
+                      disabled={page >= pageCount}
+                      onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                    >
+                      <ChevronRight className="size-3.5" />
+                    </Button>
+                  </div>
                   {selectedIds.size > 0 ? (
                     <div className="flex items-center gap-2">
                       <span>已选 {selectedIds.size} 个</span>
@@ -495,14 +573,14 @@ function ProxiesPageContent() {
       <ProxyEditDialog item={editingItem} onClose={() => setEditingItem(null)} onSaved={applyPayload} />
       <ProxyDeleteDialog
         item={deletingLive}
-        hasOtherProxies={items.some((item) => item.id !== deletingLive?.id)}
+        hasOtherProxies={totalProxies > 1}
         isDeleting={isDeleting}
         onCancel={() => setDeletingItem(null)}
         onConfirm={() => void handleDelete()}
       />
       <ProxyBatchDeleteDialog
         items={isBatchDeleteOpen ? selectedLive : null}
-        hasOtherProxies={items.some((item) => !selectedIds.has(item.id))}
+        hasOtherProxies={totalProxies > selectedIds.size}
         isDeleting={isBatchDeleting}
         onCancel={() => setIsBatchDeleteOpen(false)}
         onConfirm={() => void handleBatchDelete()}

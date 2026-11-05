@@ -33,10 +33,16 @@ def create_router() -> APIRouter:
     @router.get("/api/image-tasks")
     async def list_image_tasks(
         ids: str = Query(default=""),
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
         authorization: str | None = Header(default=None),
     ):
         identity = require_identity(authorization)
-        return await run_in_threadpool(image_task_service.list_tasks, identity, _parse_task_ids(ids))
+        task_ids = _parse_task_ids(ids)
+        # 带 ids 时是精确查询（前端轮询用），page / page_size 只对不带 ids 的列表生效
+        if task_ids:
+            return await run_in_threadpool(image_task_service.list_tasks, identity, task_ids)
+        return await run_in_threadpool(image_task_service.list_tasks, identity, task_ids, page, page_size)
 
     @router.post("/api/image-tasks/generations")
     async def create_generation_task(

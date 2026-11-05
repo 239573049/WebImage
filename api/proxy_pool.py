@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -59,8 +59,37 @@ class ProxyCoreUpdateRequest(BaseModel):
     port_start: int | None = None
 
 
-def build_pool_payload() -> dict:
-    """池设置 + 条目（健康状态、绑定数、借用数）+ 汇总。"""
+def _duplicate_exit_ips(items: list[dict]) -> dict[str, int]:
+    """已启用且共用同一出口 IP 的代理数量（>=2 才算重复）；基于全部条目，不受分页影响。"""
+    counts: dict[str, int] = {}
+    for item in items:
+        ip = str((item.get("health") or {}).get("exit_ip") or "").strip()
+        if item.get("enabled") and ip:
+            counts[ip] = counts.get(ip, 0) + 1
+    return {ip: count for ip, count in counts.items() if count >= 2}
+
+
+def _matches_query(item: dict, keyword: str) -> bool:
+    if not keyword:
+        return True
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            item.get("name"),
+            item.get("masked_url"),
+            item.get("subscription_name"),
+            (item.get("health") or {}).get("exit_ip"),
+        )
+    ).lower()
+    return keyword in haystack
+
+
+def build_pool_payload(page: int | None = None, page_size: int = 20, query: str = "") -> dict:
+    """池设置 + 条目（健康状态、绑定数、借用数）+ 汇总。
+
+    不传 page 时返回全部条目（账户页按 id 查代理名称依赖它）；传了就只返回一页，
+    summary 与 duplicate_exit_ips 仍基于全部条目。
+    """
     entries = proxy_pool.list_entries()
     entry_ids = {entry["id"] for entry in entries}
     pool_enabled = proxy_pool.is_enabled()
@@ -95,12 +124,30 @@ def build_pool_payload() -> dict:
     unhealthy = sum(1 for item in items if item["health"]["state"] == "unhealthy")
     settings = proxy_pool.settings()
     settings.pop("legacy_migrated", None)
+    page_info: dict = {}
+    all_items = items
+    if page is not None:
+        keyword = str(query or "").strip().lower()
+        matched = [item for item in all_items if _matches_query(item, keyword)]
+        page_size = max(1, min(int(page_size or 20), 200))
+        total = len(matched)
+        page_count = max(1, -(-total // page_size))
+        page = max(1, min(int(page), page_count))
+        items = matched[(page - 1) * page_size: page * page_size]
+        page_info = {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "page_count": page_count,
+            "duplicate_exit_ips": _duplicate_exit_ips(all_items),
+        }
     return {
         "settings": settings,
         "items": items,
+        **page_info,
         "summary": {
-            "total": len(items),
-            "enabled": sum(1 for item in items if item["enabled"]),
+            "total": len(all_items),
+            "enabled": sum(1 for item in all_items if item["enabled"]),
             "healthy": healthy,
             "unhealthy": unhealthy,
             "bound_accounts": sum(bound.values()),
@@ -113,9 +160,14 @@ def create_router() -> APIRouter:
     router = APIRouter()
 
     @router.get("/api/proxy/pool")
-    async def get_proxy_pool(authorization: str | None = Header(default=None)):
+    async def get_proxy_pool(
+        authorization: str | None = Header(default=None),
+        page: int | None = Query(default=None, ge=1),
+        page_size: int = Query(default=20, ge=1, le=200),
+        q: str = Query(default=""),
+    ):
         require_admin(authorization)
-        return await run_in_threadpool(build_pool_payload)
+        return await run_in_threadpool(build_pool_payload, page, page_size, q)
 
     @router.post("/api/proxy/pool/settings")
     async def update_proxy_pool_settings(body: ProxyPoolSettingsRequest, authorization: str | None = Header(default=None)):
