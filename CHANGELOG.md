@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.9.0 - 2026-11-05
+
++ [新增] AI 内容审核支持 TypeSafe 提供商（`ai_review.provider`：openai / typesafe）、拦截阈值 `threshold` 与观察模式 `observe_only`：观察模式下照常审核但不拦截，仅记录拦截状态；日志页新增「内容审核日志」筛选，设置页增加对应配置项。
++ [新增] 账户列表、图片管理、生图任务列表和代理池列表改为服务端分页与搜索：`GET /api/accounts` 支持 `page` / `page_size` / `q` / `type` / `status`，新增轻量的 `GET /api/accounts/tokens` 和 `GET /api/images/paths` 供批量操作使用；`GET /api/image-tasks` 不带 `ids` 时返回最新一页，`GET /api/proxy/pool` 支持 `page` / `page_size` / `q`。不传 `page` 时保持旧行为。图片目录全盘扫描与过期清理最多每 60 秒一次，分页浏览只读索引。
++ [新增] 图片按文件头识别真实格式（PNG / JPEG / GIF / WebP），不再一律当作 PNG 存储和返回；支持解码 gzip 压缩的 SSE 流（含多段拼接）；网页图片模型新增 `gpt-image-2.6-sunburst` / `gpt-image-2.6-flare`。
++ [调整] `gpt-image-2` 不再复用文本上游模型配置，图片链路统一发送 `auto`。
++ [修复] 图片下载遇到存储端 503 ServerBusy 等临时错误时退避重试。
++ [修复] TLS 校验改用 certifi 证书包，修复 curl_cffi 内置根证书缺失 Let's Encrypt 新链路导致的 `curl (60)` 错误。
+
 + [新增] 代理池：后台「资源管理 → 代理池」可批量录入多个上游代理。开启后账号按绑定数均分并永久粘性绑定（绑定写在账号的 `proxy_id` 上，token 刷新不丢），只有删除代理时才把它名下的账号改绑到其他代理；绑定代理被禁用或连续出错时临时借用另一个代理（同一账号固定借同一个），恢复后自动回到原代理；无账号请求在池内轮询，OAuth 登录预分配代理并直接绑定新账号。账号上原有的手填代理在首次开启时迁进池。后台每分钟探测各代理（`/cdn-cgi/trace`，显示延迟与出口 IP）。池数据在 `data/proxy_pool.json`，随配置备份。
 + [新增] Sentinel 求解服务支持按代理分通道：请求里带上账号的池代理时，在该代理专属的浏览器上下文（独立 Cookie）里求解，turnstile 与业务请求同一出口；通道数与空闲回收可用 `SENTINEL_SOLVER_MAX_LANES` / `SENTINEL_SOLVER_LANE_IDLE_SECS` 配置，通道全忙时排队等待而不是直接失败。转发器支持 HTTP / HTTPS / SOCKS5 带认证上游，浏览器禁用绕过代理的 WebRTC UDP。注意：求解服务现在会收到代理地址（含凭据），仍不接收账号 token、Cookie 或 prompt。
 + [新增] 代理池支持 Clash / V2Ray 订阅：添加订阅后勾选节点导入，HTTP / SOCKS5 节点直接使用；ss / vmess / vless / trojan / hysteria2 / tuic 等节点通过可选的 mihomo 内核（compose profile `proxy-core`）转成内网固定端口。订阅默认每 6 小时刷新，节点参数变化不影响账号绑定，节点消失时自动禁用、回来时自动恢复；删除订阅会一并删除其导入的代理。「批量添加」也可直接粘贴 vmess / vless / trojan / ss / hysteria2 / tuic 分享链接或 base64 订阅内容。新增依赖 PyYAML。
