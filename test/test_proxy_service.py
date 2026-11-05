@@ -1,3 +1,4 @@
+import certifi
 import copy
 import json
 import threading
@@ -76,7 +77,7 @@ class ProxyServiceTests(unittest.TestCase):
         )
         store = ProxySettingsStore(FakeConfig(legacy_proxy="http://legacy.example:8080", runtime=runtime))
 
-        self.assertIs(store.build_session_kwargs(verify=True)["verify"], True)
+        self.assertEqual(store.build_session_kwargs(verify=True)["verify"], certifi.where())
         self.assertIs(store.build_session_kwargs(upstream=True, verify=True)["verify"], False)
 
     def test_global_and_account_proxy_apply_without_upstream_flag(self) -> None:

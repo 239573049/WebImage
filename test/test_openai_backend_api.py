@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import certifi
 import copy
 import io
 import json
@@ -157,7 +158,7 @@ class CodexResponsesTransportTests(unittest.TestCase):
         self.assertEqual(len(_FakeCurlSession.created), 2)  # 主会话 + codex 专用会话
         codex_session = _FakeCurlSession.created[-1]
         self.assertEqual(codex_session.kwargs["proxy"], "socks5h://global.example:1080")
-        self.assertIs(codex_session.kwargs["verify"], True)
+        self.assertEqual(codex_session.kwargs["verify"], certifi.where())
         self.assertNotIn("impersonate", codex_session.kwargs)
         [(url, call)] = codex_session.posts
         self.assertEqual(url, CODEX_URL)

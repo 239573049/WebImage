@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import certifi
 import copy
 import os
 import tempfile
@@ -111,7 +112,7 @@ class MeansProxyTests(unittest.TestCase):
         kwargs = self.put_kwargs(make_store(runtime_proxy=RUNTIME_PROXY))
 
         self.assertEqual(kwargs["proxy"], GLOBAL_PROXY)
-        self.assertIs(kwargs["verify"], True)
+        self.assertEqual(kwargs["verify"], certifi.where())
 
     def test_loopback_endpoint_stays_direct(self) -> None:
         self.assertNotIn("proxy", self.put_kwargs(make_store(), endpoint=LOOPBACK_URL))
@@ -122,7 +123,7 @@ class MeansProxyTests(unittest.TestCase):
     def test_verify_ssl_setting_is_not_overridden_by_runtime_skip_ssl_verify(self) -> None:
         store = make_store(runtime_proxy=RUNTIME_PROXY, skip_ssl_verify=True)
 
-        self.assertIs(self.put_kwargs(store)["verify"], True)
+        self.assertEqual(self.put_kwargs(store)["verify"], certifi.where())
         self.assertIs(self.put_kwargs(store, verify_ssl=False)["verify"], False)
 
 
@@ -153,7 +154,7 @@ class StorageClientProxyTests(unittest.TestCase):
         kwargs = session_cls.call_args.kwargs
         self.assertEqual(kwargs["proxy"], GLOBAL_PROXY)
         self.assertEqual(kwargs["impersonate"], "chrome")
-        self.assertIs(kwargs["verify"], True)
+        self.assertEqual(kwargs["verify"], certifi.where())
 
 
 class Sub2APIProxyTests(unittest.TestCase):
@@ -192,7 +193,7 @@ class Sub2APIProxyTests(unittest.TestCase):
         for name, kwargs in self.session_kwargs("https://sub2api.example.test").items():
             with self.subTest(call=name):
                 self.assertEqual(kwargs["proxy"], GLOBAL_PROXY)
-                self.assertIs(kwargs["verify"], True)
+                self.assertEqual(kwargs["verify"], certifi.where())
 
     def test_loopback_sub2api_server_stays_direct(self) -> None:
         for name, kwargs in self.session_kwargs("http://127.0.0.1:8080").items():
