@@ -645,6 +645,8 @@ class OpenAIBackendAPI:
             headers["X-Conduit-Token"] = conduit_token
         if accept == "text/event-stream":
             headers["X-Oai-Turn-Trace-Id"] = new_uuid()
+            # 让上游对 SSE 做 gzip 压缩以减少图片流体积；解压见 utils.helper.iter_sse_lines
+            headers["X-OpenAI-Web-SSE-Compression"] = "gzip"
         return self._headers(path, headers)
 
     def _codex_responses_headers(self) -> Dict[str, str]:
@@ -962,7 +964,7 @@ class OpenAIBackendAPI:
         payload = {
             "action": "next",
             "fork_from_shared_post": False,
-            "parent_message_id": new_uuid(),
+            "parent_message_id": "client-created-root",
             "model": upstream_model,
             "client_prepare_state": "success",
             "timezone_offset_min": -480,
@@ -1107,7 +1109,7 @@ class OpenAIBackendAPI:
             "selected_github_repos": [],
             "selected_all_github_repos": False,
             "system_hints": ["picture_v2"],
-            "serialization_metadata": {"custom_symbol_offsets": []},
+            "serialization_metadata": {"render_format": "markdown", "custom_symbol_offsets": []},
         }
         if references:
             metadata["attachments"] = [{
@@ -1127,9 +1129,9 @@ class OpenAIBackendAPI:
                 "content": content,
                 "metadata": metadata,
             }],
-            "parent_message_id": new_uuid(),
+            "parent_message_id": "client-created-root",
             "model": upstream_model,
-            "client_prepare_state": "sent",
+            "client_prepare_state": "success",
             "timezone_offset_min": -480,
             "timezone": "Asia/Shanghai",
             "conversation_mode": {"kind": "primary_assistant"},

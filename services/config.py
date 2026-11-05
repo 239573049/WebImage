@@ -110,6 +110,8 @@ DEFAULT_THIRD_PARTY_APPS = {
 
 # 内置 Web 生图模型（官网画图链路）。新增型号时同步更新 utils.helper.DEFAULT_WEB_IMAGE_MODELS。
 DEFAULT_IMAGE_MODELS = [
+    "gpt-image-2.6-sunburst",
+    "gpt-image-2.6-flare",
     "gpt-image-2.5-sunburst",
     "gpt-image-2.5-flare",
     "gpt-image-2",
