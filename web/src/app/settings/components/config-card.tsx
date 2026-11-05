@@ -55,6 +55,7 @@ export function ConfigCard() {
   const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
   const setSensitiveWordsText = useSettingsStore((state) => state.setSensitiveWordsText);
   const setAIReviewField = useSettingsStore((state) => state.setAIReviewField);
+  const isTypeSafeReview = useSettingsStore((state) => state.config?.ai_review?.provider === "typesafe");
   const setImageStorageField = useSettingsStore((state) => state.setImageStorageField);
   const testImageStorage = useSettingsStore((state) => state.testImageStorage);
   const syncImagesToWebDAV = useSettingsStore((state) => state.syncImagesToWebDAV);
@@ -519,10 +520,59 @@ export function ConfigCard() {
                 onCheckedChange={(checked) => setAIReviewField("enabled", Boolean(checked))}
               />
             </label>
+            <label className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-field/50 px-4 py-3">
+              <div className="space-y-0.5">
+                <div className="text-[13px] font-medium text-foreground/80">观察模式</div>
+                <div className="text-xs leading-5 text-muted-foreground">
+                  开启后 AI 审核照常执行，但命中时不会拦截请求，只在「日志 → 内容审核日志」中记录拦截状态，便于上线前评估误杀率和调整提示词、阈值。审核服务异常时也不会拦截。
+                </div>
+              </div>
+              <Switch
+                checked={Boolean(config?.ai_review?.observe_only)}
+                onCheckedChange={(checked) => setAIReviewField("observe_only", Boolean(checked))}
+              />
+            </label>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-[13px] font-medium text-foreground/80">审核提供商</label>
+                <Select
+                  value={config?.ai_review?.provider === "typesafe" ? "typesafe" : "openai"}
+                  onValueChange={(value) => setAIReviewField("provider", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI 兼容（/v1/chat/completions）</SelectItem>
+                    <SelectItem value="typesafe">TypeSafe Jev（/v1/systemone）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {isTypeSafeReview
+                    ? "使用 TypeSafe Jev 判断请求是否应被拒绝，返回违规概率并与阈值比较。Key 在 console.typesafe.ai 获取。"
+                    : "调用任意 OpenAI 兼容接口，模型需回答 ALLOW 或 REJECT。"}
+                </p>
+              </div>
+              {isTypeSafeReview ? (
+                <div className="space-y-2">
+                  <label className="text-[13px] font-medium text-foreground/80">拒绝阈值</label>
+                  <Input
+                    type="number"
+                    min={0.01}
+                    max={1}
+                    step={0.05}
+                    value={String(config?.ai_review?.threshold ?? 0.5)}
+                    onChange={(event) => setAIReviewField("threshold", event.target.value)}
+                    placeholder="0.5"
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">违规概率 ≥ 阈值时拒绝，取值 (0, 1]。调低更严格，调高更宽松。</p>
+                </div>
+              ) : null}
+            </div>
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <label className="text-[13px] font-medium text-foreground/80">Base URL</label>
-                <Input value={String(config?.ai_review?.base_url || "")} onChange={(event) => setAIReviewField("base_url", event.target.value)} placeholder="https://api.openai.com" />
+                <Input value={String(config?.ai_review?.base_url || "")} onChange={(event) => setAIReviewField("base_url", event.target.value)} placeholder={isTypeSafeReview ? "https://api.typesafe.ai（留空使用默认）" : "https://api.openai.com"} />
               </div>
               <div className="space-y-2">
                 <label className="text-[13px] font-medium text-foreground/80">API Key</label>
@@ -530,12 +580,20 @@ export function ConfigCard() {
               </div>
               <div className="space-y-2">
                 <label className="text-[13px] font-medium text-foreground/80">Model</label>
-                <Input value={String(config?.ai_review?.model || "")} onChange={(event) => setAIReviewField("model", event.target.value)} placeholder="gpt-5.4-mini" />
+                <Input value={String(config?.ai_review?.model || "")} onChange={(event) => setAIReviewField("model", event.target.value)} placeholder={isTypeSafeReview ? "jev-latest（留空使用默认）" : "gpt-5.4-mini"} />
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[13px] font-medium text-foreground/80">审核提示词</label>
-              <Textarea value={String(config?.ai_review?.prompt || "")} onChange={(event) => setAIReviewField("prompt", event.target.value)} placeholder="判断用户请求是否允许。只回答 ALLOW 或 REJECT。" className="min-h-24 text-xs" />
+              <label className="text-[13px] font-medium text-foreground/80">{isTypeSafeReview ? "审核指令（系统提示词）" : "审核提示词"}</label>
+              <Textarea
+                value={String(config?.ai_review?.prompt || "")}
+                onChange={(event) => setAIReviewField("prompt", event.target.value)}
+                placeholder={isTypeSafeReview ? "描述哪些请求应被拒绝，例如：判断该生图请求是否包含色情、暴力、违法或侵犯真实人物肖像等内容。留空使用内置默认指令。" : "判断用户请求是否允许。只回答 ALLOW 或 REJECT。"}
+                className="min-h-24 text-xs"
+              />
+              {isTypeSafeReview ? (
+                <p className="text-xs leading-5 text-muted-foreground">Jev 会回答「是否应拒绝」这个问题，所以指令应描述违规标准，不需要要求输出 ALLOW / REJECT。</p>
+              ) : null}
             </div>
           </div>
         </div>

@@ -252,12 +252,19 @@ class ImageStorageService:
         safe_rel = _safe_relative_path(rel)
         return _is_image_rel(safe_rel) and _local_image_path(safe_rel).is_file()
 
-    def list_items(self, base_url: str, start_date: str = "", end_date: str = "") -> list[dict[str, object]]:
+    def list_items(
+        self,
+        base_url: str,
+        start_date: str = "",
+        end_date: str = "",
+        rescan: bool = True,
+    ) -> list[dict[str, object]]:
+        """rescan=False 时只读索引：跳过全盘 rglob 和逐张 is_file 校验，供分页浏览高频调用。"""
         with self._index_lock:
             indexed = self._load_clean_index()
             root = config.images_dir
             changed = False
-            for path in root.rglob("*"):
+            for path in (root.rglob("*") if rescan else ()):
                 if not path.is_file() or not _is_image_rel(path.name):
                     continue
                 rel = path.relative_to(root).as_posix()
@@ -288,21 +295,22 @@ class ImageStorageService:
                     indexed.pop(rel, None)
                     changed = True
                     continue
-                local = _local_image_path(rel).is_file()
-                webdav = bool(item.get("webdav"))
-                if not local and not webdav:
-                    indexed.pop(rel, None)
-                    changed = True
-                    continue
-                storage = "both" if local and webdav else ("webdav" if webdav else "local")
-                if item.get("local") != local or item.get("storage") != storage:
-                    item = {
-                        **item,
-                        "local": local,
-                        "storage": storage,
-                    }
-                    indexed[rel] = item
-                    changed = True
+                if rescan:
+                    local = _local_image_path(rel).is_file()
+                    webdav = bool(item.get("webdav"))
+                    if not local and not webdav:
+                        indexed.pop(rel, None)
+                        changed = True
+                        continue
+                    storage = "both" if local and webdav else ("webdav" if webdav else "local")
+                    if item.get("local") != local or item.get("storage") != storage:
+                        item = {
+                            **item,
+                            "local": local,
+                            "storage": storage,
+                        }
+                        indexed[rel] = item
+                        changed = True
                 day = str(item.get("date") or "")
                 if start_date and day < start_date:
                     continue

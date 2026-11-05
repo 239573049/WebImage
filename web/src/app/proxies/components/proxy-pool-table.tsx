@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { ArrowDownLeft, ArrowUpRight, LoaderCircle, Network, Pencil, PlugZap, Plus, Trash2 } from "lucide-react";
 
 import { Tooltip } from "@/components/motion/tooltip";
@@ -10,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import type { ProxyPoolItem } from "@/lib/api";
-import { duplicateExitIps, formatProxyTime, getProxyHealthMeta, proxySourceLabel } from "@/lib/proxy-pool";
+import { formatProxyTime, getProxyHealthMeta, proxySourceLabel } from "@/lib/proxy-pool";
 import { cn } from "@/lib/utils";
 
 type ProxyPoolTableProps = {
@@ -19,6 +18,8 @@ type ProxyPoolTableProps = {
   pendingIds: Set<string>;
   testingIds: Set<string>;
   selectedIds: Set<string>;
+  /** 出口 IP -> 共用它的已启用代理数（服务端基于全部条目计算，不受分页影响） */
+  duplicateIps: Map<string, number>;
   onSelectedIdsChange: (ids: Set<string>) => void;
   onToggle: (item: ProxyPoolItem, enabled: boolean) => void;
   onTest: (item: ProxyPoolItem) => void;
@@ -171,6 +172,7 @@ export function ProxyPoolTable({
   pendingIds,
   testingIds,
   selectedIds,
+  duplicateIps,
   onSelectedIdsChange,
   onToggle,
   onTest,
@@ -178,7 +180,6 @@ export function ProxyPoolTable({
   onDelete,
   onAdd,
 }: ProxyPoolTableProps) {
-  const duplicateIps = useMemo(() => duplicateExitIps(items), [items]);
   const selectedCount = items.filter((item) => selectedIds.has(item.id)).length;
   const allSelected = items.length > 0 && selectedCount === items.length;
 

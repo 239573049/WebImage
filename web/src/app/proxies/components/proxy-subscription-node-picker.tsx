@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, ListChecks, LoaderCircle, RefreshCw, Rss, SearchX } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ListChecks, LoaderCircle, RefreshCw, Rss, SearchX } from "lucide-react";
 import { toast } from "sonner";
 
 import { SearchInput } from "@/components/search-input";
@@ -66,6 +66,8 @@ export function ProxySubscriptionNodePicker({ target, onClose, onChanged }: Prox
   );
 }
 
+const NODE_PAGE_SIZE = 50;
+
 function NodeStatus({ node }: { node: ProxySubscriptionNode }) {
   if (node.imported) {
     return (
@@ -109,6 +111,7 @@ function NodePickerContent({
   const [isImporting, setIsImporting] = useState(false);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<NodeModeFilter>("all");
+  const [nodePage, setNodePage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [summary, setSummary] = useState<ImportSummary | null>(null);
 
@@ -135,6 +138,13 @@ function NodePickerContent({
 
   const nodes = useMemo(() => detail?.nodes ?? [], [detail]);
   const visible = useMemo(() => filterSubscriptionNodes(nodes, query, mode), [nodes, query, mode]);
+  // 节点可能有成千上万个：每次只渲染一页，勾选 / 全选仍作用于全部匹配项
+  const nodePageCount = Math.max(1, Math.ceil(visible.length / NODE_PAGE_SIZE));
+  const safeNodePage = Math.min(nodePage, nodePageCount);
+  const pagedNodes = useMemo(
+    () => visible.slice((safeNodePage - 1) * NODE_PAGE_SIZE, safeNodePage * NODE_PAGE_SIZE),
+    [visible, safeNodePage],
+  );
   const visibleSelectable = useMemo(() => visible.filter(isNodeSelectable), [visible]);
   const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every((node) => selected.has(node.key));
 
@@ -269,11 +279,14 @@ function NodePickerContent({
           <SearchInput
             size="sm"
             value={query}
-            onValueChange={setQuery}
+            onValueChange={(value) => {
+              setQuery(value);
+              setNodePage(1);
+            }}
             placeholder="搜索名称、类型、地址"
             className="w-full sm:w-56"
           />
-          <SegmentedControl size="sm" value={mode} onValueChange={setMode} options={modeOptions} aria-label="按导入方式筛选" />
+          <SegmentedControl size="sm" value={mode} onValueChange={(value) => { setMode(value); setNodePage(1); }} options={modeOptions} aria-label="按导入方式筛选" />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <Button
@@ -342,7 +355,7 @@ function NodePickerContent({
                 <div role="columnheader">服务器</div>
                 <div role="columnheader">状态</div>
               </div>
-              {visible.map((node) => {
+              {pagedNodes.map((node) => {
                 const selectable = isNodeSelectable(node);
                 const checked = node.imported || selected.has(node.key);
                 return (
@@ -387,6 +400,36 @@ function NodePickerContent({
             </div>
           </div>
         )}
+        {visible.length > NODE_PAGE_SIZE ? (
+          <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-1.5 text-xs text-muted-foreground tabular-nums">
+            <span>
+              {(safeNodePage - 1) * NODE_PAGE_SIZE + 1}–{Math.min(safeNodePage * NODE_PAGE_SIZE, visible.length)} / {visible.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="size-7 rounded-md"
+                aria-label="上一页"
+                disabled={safeNodePage <= 1}
+                onClick={() => setNodePage(Math.max(1, safeNodePage - 1))}
+              >
+                <ChevronLeft className="size-3.5" />
+              </Button>
+              <span>第 {safeNodePage} / {nodePageCount} 页</span>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="size-7 rounded-md"
+                aria-label="下一页"
+                disabled={safeNodePage >= nodePageCount}
+                onClick={() => setNodePage(Math.min(nodePageCount, safeNodePage + 1))}
+              >
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {summary ? (

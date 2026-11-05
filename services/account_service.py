@@ -1301,6 +1301,99 @@ class AccountService:
             result.append(account)
         return result
 
+    def list_accounts_page(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        query: str = "",
+        account_type: str = "all",
+        status: str = "all",
+    ) -> dict:
+        """服务端分页：按邮箱关键字 / 类型 / 状态过滤后切片，同时返回全库汇总。
+
+        summary 与 types 始终基于全部账号（不受过滤影响），供页面顶部统计和类型下拉使用；
+        健康态只为当前页的账号查询，避免对全部账号做 SQLite 查询。
+        """
+        page_size = max(1, min(int(page_size or 20), 200))
+        with self._lock:
+            all_items = [dict(item) for item in self._accounts.values()]
+            inflight = dict(self._image_inflight)
+
+        def type_of(item: dict) -> str:
+            return str(item.get("type") or "Free")
+
+        summary = {"total": len(all_items), "active": 0, "limited": 0, "abnormal": 0, "disabled": 0, "quota": 0}
+        status_keys = {"正常": "active", "限流": "limited", "异常": "abnormal", "禁用": "disabled"}
+        for item in all_items:
+            key = status_keys.get(item.get("status"))
+            if key:
+                summary[key] += 1
+            if item.get("status") == "正常":
+                summary["quota"] += max(0, int(item.get("quota") or 0))
+        types = sorted({type_of(item) for item in all_items})
+
+        keyword = str(query or "").strip().lower()
+        matched = [
+            item
+            for item in all_items
+            if (not keyword or keyword in str(item.get("email") or "").lower())
+            and (account_type in ("", "all") or type_of(item) == account_type)
+            and (status in ("", "all") or item.get("status") == status)
+        ]
+        # 状态标签计数跟随关键字和类型过滤，但不受状态过滤影响
+        status_counts = {"all": 0, "正常": 0, "限流": 0, "异常": 0, "禁用": 0}
+        for item in all_items:
+            if (not keyword or keyword in str(item.get("email") or "").lower()) and (
+                account_type in ("", "all") or type_of(item) == account_type
+            ):
+                status_counts["all"] += 1
+                if item.get("status") in status_counts:
+                    status_counts[item["status"]] += 1
+        success = sum(int(item.get("success") or 0) for item in all_items)
+        fail = sum(int(item.get("fail") or 0) for item in all_items)
+        activity = {"inflight": sum(int(v) for v in inflight.values()), "success": success, "fail": fail}
+
+        total = len(matched)
+        page_count = max(1, -(-total // page_size))
+        page = max(1, min(int(page or 1), page_count))
+        rows = matched[(page - 1) * page_size: page * page_size]
+
+        tokens = [token for item in rows if (token := item.get("access_token") or "")]
+        health_map = image_runtime_repository.get_health_many(tokens) if tokens else {}
+        for account in rows:
+            token = account.get("access_token") or ""
+            account["image_inflight"] = int(inflight.get(token, 0))
+            account.update(health_map.get(token) or DEFAULT_HEALTH)
+        return {
+            "items": rows,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "page_count": page_count,
+            "summary": summary,
+            "status_counts": status_counts,
+            "activity": activity,
+            "types": types,
+        }
+
+    def list_account_briefs(self, query: str = "", account_type: str = "all", status: str = "all") -> list[dict]:
+        """轻量列表：只含 access_token / status / quota，供批量操作使用，避免传输完整记录。"""
+        keyword = str(query or "").strip().lower()
+        with self._lock:
+            items = list(self._accounts.values())
+            return [
+                {
+                    "access_token": item.get("access_token") or "",
+                    "status": item.get("status"),
+                    "quota": int(item.get("quota") or 0),
+                }
+                for item in items
+                if item.get("access_token")
+                and (not keyword or keyword in str(item.get("email") or "").lower())
+                and (account_type in ("", "all") or str(item.get("type") or "Free") == account_type)
+                and (status in ("", "all") or item.get("status") == status)
+            ]
+
     def list_limited_tokens(self) -> list[str]:
         with self._lock:
             return [

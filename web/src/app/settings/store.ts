@@ -189,10 +189,13 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     sensitive_words: Array.isArray(config.sensitive_words) ? config.sensitive_words : [],
     ai_review: {
       enabled: Boolean(config.ai_review?.enabled),
+      observe_only: Boolean(config.ai_review?.observe_only),
+      provider: config.ai_review?.provider === "typesafe" ? "typesafe" : "openai",
       base_url: String(config.ai_review?.base_url || ""),
       api_key: String(config.ai_review?.api_key || ""),
       model: String(config.ai_review?.model || ""),
       prompt: String(config.ai_review?.prompt || ""),
+      threshold: config.ai_review?.threshold ?? 0.5,
     },
     image_storage: {
       enabled: Boolean(imageStorage.enabled),
@@ -312,7 +315,7 @@ type SettingsStore = {
   setCustomImageModelsText: (value: string) => void;
   setDefaultImageModel: (value: string) => void;
   setSensitiveWordsText: (value: string) => void;
-  setAIReviewField: (key: "enabled" | "base_url" | "api_key" | "model" | "prompt", value: string | boolean) => void;
+  setAIReviewField: (key: "enabled" | "observe_only" | "provider" | "base_url" | "api_key" | "model" | "prompt" | "threshold", value: string | boolean) => void;
   setImageStorageField: (key: keyof ImageStorageSettings, value: string | boolean) => void;
   setProxyRuntimeField: <K extends keyof ProxyRuntimeSettings>(key: K, value: ProxyRuntimeSettings[K]) => void;
   setProxyRuntimeClearanceField: <K extends keyof ProxyRuntimeSettings["clearance"]>(key: K, value: ProxyRuntimeSettings["clearance"][K]) => void;
@@ -446,10 +449,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         sensitive_words: (config.sensitive_words || []).map((item) => String(item).trim()).filter(Boolean),
         ai_review: {
           enabled: Boolean(config.ai_review?.enabled),
+          observe_only: Boolean(config.ai_review?.observe_only),
+          provider: config.ai_review?.provider === "typesafe" ? "typesafe" : "openai",
           base_url: String(config.ai_review?.base_url || "").trim(),
           api_key: String(config.ai_review?.api_key || "").trim(),
           model: String(config.ai_review?.model || "").trim(),
           prompt: String(config.ai_review?.prompt || "").trim(),
+          threshold: (() => {
+            const value = Number(config.ai_review?.threshold);
+            return Number.isFinite(value) && value > 0 && value <= 1 ? value : 0.5;
+          })(),
         },
         image_storage: {
           enabled: Boolean(config.image_storage?.enabled),

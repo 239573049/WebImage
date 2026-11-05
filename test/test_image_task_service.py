@@ -178,6 +178,30 @@ class ImageTaskServiceTests(unittest.TestCase):
             self.assertNotIn("已中断", str(resumable.get("error") or ""))
             self.assertIn("无法找回", str(resumable.get("error") or ""))
 
+    def test_list_without_ids_is_paginated_but_ids_lookup_is_not(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json")
+            for i in range(5):
+                service.submit_generation(
+                    OWNER,
+                    client_task_id=f"page-task-{i}",
+                    prompt="cat",
+                    model="gpt-image-2",
+                    size=None,
+                    base_url="http://local.test",
+                )
+            for i in range(5):
+                wait_for_task(service, OWNER, f"page-task-{i}", "success")
+
+            first = service.list_tasks(OWNER, [], page=1, page_size=2)
+            self.assertEqual((len(first["items"]), first["total"], first["page_count"]), (2, 5, 3))
+            last = service.list_tasks(OWNER, [], page=99, page_size=2)
+            self.assertEqual((last["page"], len(last["items"])), (3, 1))
+            # 带 ids 的精确查询不受分页影响，也不带分页字段
+            ids = [f"page-task-{i}" for i in range(5)]
+            by_ids = service.list_tasks(OWNER, ids, page=1, page_size=2)
+            self.assertEqual(len(by_ids["items"]), 5)
+            self.assertNotIn("total", by_ids)
 
 if __name__ == "__main__":
     unittest.main()

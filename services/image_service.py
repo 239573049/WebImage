@@ -153,23 +153,78 @@ def cleanup_image_thumbnails() -> int:
     _cleanup_empty_dirs(thumbnails_root)
     return removed
 
-def list_images(base_url: str, start_date: str = "", end_date: str = "") -> dict[str, object]:
-    config.cleanup_old_images()
-    cleanup_image_thumbnails()
+# 全盘扫描 / 过期清理较重：分页浏览时最多每隔这么久做一次，或由调用方显式 refresh
+_RESCAN_INTERVAL_SECONDS = 60.0
+_rescan_lock = threading.Lock()
+_last_rescan_at = 0.0
+
+
+def _should_rescan(force: bool = False) -> bool:
+    global _last_rescan_at
+    now = time.monotonic()
+    with _rescan_lock:
+        if force or _last_rescan_at == 0.0 or now - _last_rescan_at >= _RESCAN_INTERVAL_SECONDS:
+            _last_rescan_at = now
+            return True
+        return False
+
+
+def _filter_by_tags(items: list[dict[str, object]], all_tags: dict[str, list[str]], tags: list[str]) -> list[dict[str, object]]:
+    wanted = [tag for tag in tags if tag]
+    if not wanted:
+        return items
+    return [item for item in items if all(tag in all_tags.get(str(item["path"]), []) for tag in wanted)]
+
+
+def list_images(
+    base_url: str,
+    start_date: str = "",
+    end_date: str = "",
+    page: int | None = None,
+    page_size: int = 12,
+    tags: list[str] | None = None,
+    refresh: bool = False,
+) -> dict[str, object]:
+    # 不传 page：保持旧行为（每次都清理并重扫，返回全部 + groups）
+    paged = page is not None
+    if not paged or _should_rescan(refresh):
+        config.cleanup_old_images()
+        cleanup_image_thumbnails()
+        rescan = True
+    else:
+        rescan = False
     all_tags = load_tags()
-    items = [
-        {
+    raw_items = image_storage_service.list_items(base_url, start_date, end_date, rescan=rescan)
+    raw_items = _filter_by_tags(raw_items, all_tags, tags or [])
+
+    def decorate(item: dict[str, object]) -> dict[str, object]:
+        return {
             **item,
             "url": str(item.get("url") or f"{base_url.rstrip('/')}/images/{item['path']}"),
             "thumbnail_url": thumbnail_url(base_url, str(item["path"])),
             "tags": all_tags.get(str(item["path"]), []),
         }
-        for item in image_storage_service.list_items(base_url, start_date, end_date)
-    ]
-    groups: dict[str, list[dict[str, object]]] = {}
-    for item in items:
-        groups.setdefault(str(item["date"]), []).append(item)
-    return {"items": items, "groups": [{"date": key, "items": value} for key, value in groups.items()]}
+
+    if not paged:
+        items = [decorate(item) for item in raw_items]
+        groups: dict[str, list[dict[str, object]]] = {}
+        for item in items:
+            groups.setdefault(str(item["date"]), []).append(item)
+        return {"items": items, "groups": [{"date": key, "items": value} for key, value in groups.items()]}
+
+    page_size = max(1, min(int(page_size or 12), 200))
+    total = len(raw_items)
+    page_count = max(1, -(-total // page_size))
+    page = max(1, min(int(page or 1), page_count))
+    rows = [decorate(item) for item in raw_items[(page - 1) * page_size: page * page_size]]
+    return {"items": rows, "total": total, "page": page, "page_size": page_size, "page_count": page_count}
+
+
+def list_image_paths(start_date: str = "", end_date: str = "", tags: list[str] | None = None) -> list[str]:
+    """只返回路径，供「全选结果 / 下载全部」使用；读索引即可，不触发重扫。"""
+    all_tags = load_tags()
+    items = image_storage_service.list_items("", start_date, end_date, rescan=False)
+    return [str(item["path"]) for item in _filter_by_tags(items, all_tags, tags or [])]
 
 
 def delete_images(paths: list[str] | None = None, start_date: str = "", end_date: str = "", all_matching: bool = False) -> dict[str, int]:

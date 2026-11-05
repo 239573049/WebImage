@@ -18,6 +18,7 @@ from services.image_service import (
     get_image_download_response,
     get_image_response,
     get_thumbnail_response,
+    list_image_paths,
     list_images,
     storage_stats,
 )
@@ -26,6 +27,10 @@ from services.image_tags_service import delete_tag, get_all_tags, set_tags
 from services.log_service import log_service
 from services.metrics_service import ai_metrics
 from services.proxy_service import proxy_settings, test_clearance, test_proxy
+
+
+def _split_tags(raw: str) -> list[str]:
+    return [tag.strip() for tag in str(raw or "").split(",") if tag.strip()]
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -96,9 +101,38 @@ def create_router(app_version: str) -> APIRouter:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
     @router.get("/api/images")
-    async def get_images(request: Request, start_date: str = "", end_date: str = "", authorization: str | None = Header(default=None)):
+    async def get_images(
+        request: Request,
+        start_date: str = "",
+        end_date: str = "",
+        page: int | None = Query(default=None, ge=1),
+        page_size: int = Query(default=12, ge=1, le=200),
+        tags: str = "",
+        refresh: bool = False,
+        authorization: str | None = Header(default=None),
+    ):
         require_admin(authorization)
-        return list_images(resolve_image_base_url(request), start_date=start_date.strip(), end_date=end_date.strip())
+        return await run_in_threadpool(
+            list_images,
+            resolve_image_base_url(request),
+            start_date.strip(),
+            end_date.strip(),
+            page,
+            page_size,
+            _split_tags(tags),
+            refresh,
+        )
+
+    @router.get("/api/images/paths")
+    async def get_image_paths(
+        start_date: str = "",
+        end_date: str = "",
+        tags: str = "",
+        authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        paths = await run_in_threadpool(list_image_paths, start_date.strip(), end_date.strip(), _split_tags(tags))
+        return {"paths": paths}
 
     @router.get("/images/{image_path:path}", include_in_schema=False)
     async def get_image(image_path: str):
