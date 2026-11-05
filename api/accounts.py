@@ -9,7 +9,7 @@ import zipfile
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -221,9 +221,31 @@ def create_router() -> APIRouter:
         return {"items": auth_service.list_keys(role="user")}
 
     @router.get("/api/accounts")
-    async def get_accounts(authorization: str | None = Header(default=None)):
+    async def get_accounts(
+        authorization: str | None = Header(default=None),
+        page: int | None = Query(default=None, ge=1),
+        page_size: int = Query(default=20, ge=1, le=200),
+        q: str = Query(default=""),
+        type: str = Query(default="all"),
+        status: str = Query(default="all"),
+    ):
         require_admin(authorization)
-        return {"items": account_service.list_accounts()}
+        # 不传 page 时保持旧行为（返回全部），兼容仍需要全量账号的调用方
+        if page is None:
+            return {"items": account_service.list_accounts()}
+        return await run_in_threadpool(
+            account_service.list_accounts_page, page, page_size, q, type, status
+        )
+
+    @router.get("/api/accounts/tokens")
+    async def get_account_tokens(
+        authorization: str | None = Header(default=None),
+        q: str = Query(default=""),
+        type: str = Query(default="all"),
+        status: str = Query(default="all"),
+    ):
+        require_admin(authorization)
+        return {"items": account_service.list_account_briefs(q, type, status)}
 
     @router.post("/api/accounts/health/reset")
     async def reset_account_health(

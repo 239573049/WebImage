@@ -179,10 +179,16 @@ export type SettingsConfig = {
   sensitive_words?: string[];
   ai_review?: {
     enabled?: boolean;
+    /** openai: OpenAI 兼容 chat/completions；typesafe: TypeSafe Jev /v1/systemone */
+    provider?: "openai" | "typesafe";
     base_url?: string;
     api_key?: string;
     model?: string;
     prompt?: string;
+    /** 观察模式：命中时只记录到审核日志，不拦截请求 */
+    observe_only?: boolean;
+    /** 仅 typesafe：拒绝概率阈值 (0, 1]，默认 0.5 */
+    threshold?: number | string;
   };
   refresh_account_interval_minute?: number | string;
   image_retention_days?: number | string;
@@ -388,6 +394,65 @@ export async function login(authKey: string) {
 
 export async function fetchAccounts() {
   return httpRequest<AccountListResponse>("/api/accounts");
+}
+
+export type AccountPoolSummary = {
+  total: number;
+  active: number;
+  limited: number;
+  abnormal: number;
+  disabled: number;
+  quota: number;
+};
+
+export type AccountPageQuery = {
+  page: number;
+  pageSize: number;
+  query?: string;
+  type?: string;
+  status?: string;
+};
+
+export type AccountPageResponse = {
+  items: Account[];
+  total: number;
+  page: number;
+  page_size: number;
+  page_count: number;
+  /** 全部账号的汇总，不受过滤影响 */
+  summary: AccountPoolSummary;
+  /** 跟随关键字和类型过滤、不受状态过滤影响的各状态数量 */
+  status_counts: Record<"all" | "正常" | "限流" | "异常" | "禁用", number>;
+  activity: { inflight: number; success: number; fail: number };
+  types: string[];
+};
+
+export type AccountBrief = {
+  access_token: string;
+  status: Account["status"];
+  quota: number;
+};
+
+function accountFilterParams(filters: { query?: string; type?: string; status?: string }) {
+  const params = new URLSearchParams();
+  if (filters.query?.trim()) params.set("q", filters.query.trim());
+  if (filters.type && filters.type !== "all") params.set("type", filters.type);
+  if (filters.status && filters.status !== "all") params.set("status", filters.status);
+  return params;
+}
+
+/** 服务端分页的账号列表 */
+export async function fetchAccountsPage({ page, pageSize, ...filters }: AccountPageQuery) {
+  const params = accountFilterParams(filters);
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+  return httpRequest<AccountPageResponse>(`/api/accounts?${params.toString()}`);
+}
+
+/** 轻量列表（仅 token / 状态 / 额度），用于全部刷新、导出等批量操作 */
+export async function fetchAccountBriefs(filters: { query?: string; type?: string; status?: string } = {}) {
+  const qs = accountFilterParams(filters).toString();
+  return httpRequest<{ items: AccountBrief[] }>(`/api/accounts/tokens${qs ? `?${qs}` : ""}`);
 }
 
 export async function fetchModels() {
@@ -653,6 +718,41 @@ export async function fetchManagedImages(filters: { start_date?: string; end_dat
   return httpRequest<{ items: ManagedImage[]; groups: Array<{ date: string; items: ManagedImage[] }> }>(
     `/api/images${params.toString() ? `?${params.toString()}` : ""}`,
   );
+}
+
+export type ManagedImagePageResponse = {
+  items: ManagedImage[];
+  total: number;
+  page: number;
+  page_size: number;
+  page_count: number;
+};
+
+type ManagedImageFilters = { start_date?: string; end_date?: string; tags?: string[] };
+
+function managedImageParams(filters: ManagedImageFilters) {
+  const params = new URLSearchParams();
+  if (filters.start_date) params.set("start_date", filters.start_date);
+  if (filters.end_date) params.set("end_date", filters.end_date);
+  if (filters.tags && filters.tags.length > 0) params.set("tags", filters.tags.join(","));
+  return params;
+}
+
+/** 服务端分页 + 标签过滤；refresh 为 true 时强制服务端重扫磁盘 */
+export async function fetchManagedImagesPage(
+  filters: ManagedImageFilters & { page: number; pageSize: number; refresh?: boolean },
+) {
+  const params = managedImageParams(filters);
+  params.set("page", String(filters.page));
+  params.set("page_size", String(filters.pageSize));
+  if (filters.refresh) params.set("refresh", "true");
+  return httpRequest<ManagedImagePageResponse>(`/api/images?${params.toString()}`);
+}
+
+/** 只取符合条件的全部路径，用于「全选结果」和「下载全部」 */
+export async function fetchManagedImagePaths(filters: ManagedImageFilters) {
+  const qs = managedImageParams(filters).toString();
+  return httpRequest<{ paths: string[] }>(`/api/images/paths${qs ? `?${qs}` : ""}`);
 }
 
 export async function deleteManagedImages(body: { paths?: string[]; start_date?: string; end_date?: string; all_matching?: boolean }) {

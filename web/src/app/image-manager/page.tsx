@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatCard } from "@/components/ui/stat-card";
 import { cn } from "@/lib/utils";
-import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImages, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
+import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImagePaths, fetchManagedImagesPage, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const LONG_PRESS_MS = 800;
@@ -69,6 +69,13 @@ function ImageManagerContent() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [serverPageCount, setServerPageCount] = useState(1);
+  // 「全选结果」时拉取的全部路径；筛选条件变化后清空
+  const [resultPaths, setResultPaths] = useState<string[] | null>(null);
+  // 「删除匹配日期」确认时，日期范围内（不含标签筛选）的全部路径
+  const [filteredPaths, setFilteredPaths] = useState<string[]>([]);
+  const loadSeqRef = useRef(0);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteStartDate, setDeleteStartDate] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ManagedImage | null>(null);
@@ -98,52 +105,68 @@ function ImageManagerContent() {
   const [deleteMode, setDeleteMode] = useState<"selected" | "filtered" | "byDate" | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // 图片可能有成千上万张：筛选结果、灯箱列表、全选状态都做缓存，别在每次输入标签/勾选时对全量数据重算
-  const filteredItems = useMemo(
-    () => selectedTags.length > 0
-      ? items.filter((item) => selectedTags.every((t) => (item.tags ?? []).includes(t)))
-      : items,
-    [items, selectedTags],
-  );
-
+  // 图片可能有成千上万张：列表、标签过滤、分页都在服务端完成，这里只持有当前页
+  const pageSize = 12;
   const lightboxImages = useMemo(
-    () => filteredItems.map((item) => ({
+    () => items.map((item) => ({
       id: item.name,
       src: item.url,
       sizeLabel: formatSize(item.size),
       dimensions: item.width && item.height ? `${item.width} x ${item.height}` : undefined,
     })),
-    [filteredItems],
+    [items],
   );
-  const pageSize = 12;
-  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const pageCount = Math.max(1, serverPageCount);
   const safePage = Math.min(page, pageCount);
-  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const currentRows = items;
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
-  const selectedCount = deleteMode === "filtered" ? items.length : deleteMode === "byDate" ? 0 : selectedPaths.length;
+  const selectedCount = deleteMode === "filtered" ? filteredPaths.length : deleteMode === "byDate" ? 0 : selectedPaths.length;
   const currentPageSelected = currentRows.length > 0 && currentRows.every((item) => selectedSet.has(imageKey(item)));
   const allSelected = useMemo(
-    () => filteredItems.length > 0 && filteredItems.every((item) => selectedSet.has(imageKey(item))),
-    [filteredItems, selectedSet],
+    () => resultPaths !== null && resultPaths.length > 0 && resultPaths.every((path) => selectedSet.has(path)),
+    [resultPaths, selectedSet],
   );
 
-  const loadImages = async () => {
+  const loadImages = async (refresh = false) => {
+    const seq = ++loadSeqRef.current;
     setIsLoading(true);
     try {
       const [data, tagsData] = await Promise.all([
-        fetchManagedImages({ start_date: startDate, end_date: endDate }),
+        fetchManagedImagesPage({ start_date: startDate, end_date: endDate, tags: selectedTags, page, pageSize, refresh }),
         fetchImageTags(),
       ]);
+      if (seq !== loadSeqRef.current) return; // 过期响应
       setItems(data.items);
+      setTotal(data.total);
+      setServerPageCount(data.page_count);
       setAllTags(tagsData.tags);
-      // 用 Set 过滤：全选结果后 selectedPaths 与 items 都是成千上万条，some 嵌套在 filter 里是 O(n²)
-      const existingKeys = new Set(data.items.map(imageKey));
-      setSelectedPaths((current) => current.filter((path) => existingKeys.has(path)));
-      setPage(1);
+      if (data.page !== page) setPage(data.page);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载图片失败");
+      if (seq === loadSeqRef.current) toast.error(error instanceof Error ? error.message : "加载图片失败");
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) setIsLoading(false);
+    }
+  };
+
+  /** 拉取符合当前日期+标签的全部路径并切换选中状态 */
+  const toggleAllResults = async (checked: boolean) => {
+    try {
+      const paths = resultPaths
+        ?? (await fetchManagedImagePaths({ start_date: startDate, end_date: endDate, tags: selectedTags })).paths;
+      setResultPaths(paths);
+      togglePaths(paths, checked);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "获取图片列表失败");
+    }
+  };
+
+  const openFilteredDelete = async () => {
+    try {
+      const { paths } = await fetchManagedImagePaths({ start_date: startDate, end_date: endDate });
+      setFilteredPaths(paths);
+      setDeleteMode("filtered");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "获取图片列表失败");
     }
   };
 
@@ -163,8 +186,9 @@ function ImageManagerContent() {
     setIsDeleting(true);
     try {
       await deleteManagedImages({ paths: [deleteTarget.rel] });
-      setItems((prev) => prev.filter((item) => item.rel !== deleteTarget.rel));
       setSelectedPaths((prev) => prev.filter((p) => p !== imageKey(deleteTarget)));
+      setResultPaths(null);
+      await loadImages();
       toast.success("图片已删除");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "删除失败");
@@ -245,6 +269,7 @@ function ImageManagerContent() {
     setStartDate("");
     setEndDate("");
     setSelectedTags([]);
+    setPage(1);
   };
 
   const togglePaths = (paths: string[], checked: boolean) => {
@@ -266,7 +291,9 @@ function ImageManagerContent() {
       toast.success(`已删除 ${data.removed} 张图片`);
       setDeleteMode(null);
       setSelectedPaths([]);
-      await loadImages();
+      setResultPaths(null);
+      setFilteredPaths([]);
+      await loadImages(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "删除图片失败");
     } finally {
@@ -275,7 +302,7 @@ function ImageManagerContent() {
   };
 
   const handleBatchDownload = async () => {
-    const paths = deleteMode === "filtered" ? items.map((item) => item.rel) : selectedPaths;
+    const paths = deleteMode === "filtered" ? filteredPaths : selectedPaths;
     if (paths.length === 0) return;
     setIsDownloading(true);
     try {
@@ -292,9 +319,14 @@ function ImageManagerContent() {
     await downloadSingleImage(item.rel);
   };
 
+  // 日期、标签、页码变化时向服务端取对应页；筛选变化后「全选结果」缓存失效
   useEffect(() => {
     void loadImages();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedTags, page]);
+
+  useEffect(() => {
+    setResultPaths(null);
+  }, [startDate, endDate, selectedTags]);
 
   return (
     <PageEnter className="space-y-6">
@@ -304,15 +336,15 @@ function ImageManagerContent() {
         description="浏览、筛选和打标签管理生成的图片，随时掌握磁盘占用并按日期清理。"
         actions={
           <>
-            <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
+            <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); setPage(1); }} />
             <Button variant="outline" onClick={clearFilters}>
               清除筛选条件
             </Button>
-            <Button onClick={() => void loadImages()} disabled={isLoading}>
+            <Button onClick={() => void loadImages(true)} disabled={isLoading}>
               {isLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
               查询
             </Button>
-            <Button variant="tinted-destructive" onClick={() => setDeleteMode("filtered")} disabled={isDeleting || items.length === 0 || (!startDate && !endDate)}>
+            <Button variant="tinted-destructive" onClick={() => void openFilteredDelete()} disabled={isDeleting || total === 0 || (!startDate && !endDate)}>
               <Trash2 className="size-4" />
               删除匹配日期
             </Button>
@@ -487,15 +519,14 @@ function ImageManagerContent() {
             <div className="flex flex-wrap items-center gap-3 text-sm text-foreground/80">
               <span className="flex items-center gap-1.5">
                 <ImageIcon className="size-4 text-muted-foreground" />
-                共 {filteredItems.length} 张
-                {selectedTags.length > 0 ? <span className="text-muted-foreground">（筛选自 {items.length} 张）</span> : null}
+                共 {total} 张
               </span>
               <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => togglePaths(currentRows.map(imageKey), Boolean(checked))} />
                 本页全选
               </label>
               <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox checked={allSelected} onCheckedChange={(checked) => togglePaths(filteredItems.map(imageKey), Boolean(checked))} />
+                <Checkbox checked={allSelected} onCheckedChange={(checked) => void toggleAllResults(Boolean(checked))} />
                 全选结果
               </label>
               {selectedPaths.length > 0 ? <span className="text-muted-foreground">已选 {selectedPaths.length} 张</span> : null}
@@ -521,7 +552,7 @@ function ImageManagerContent() {
           <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {currentRows.map((item, rowIndex) => {
               // 当前页第 rowIndex 张在筛选结果里的下标（不要再对全量数据做 findIndex）
-              const imageIndex = (safePage - 1) * pageSize + rowIndex;
+              const imageIndex = rowIndex;
               return (
               <div key={item.rel} className="group border-r border-b border-border p-4 transition-colors hover:bg-accent/60">
                 <div className="relative">
@@ -668,7 +699,7 @@ function ImageManagerContent() {
             )})}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3 text-sm text-muted-foreground">
-            <span>第 {safePage} / {pageCount} 页，共 {filteredItems.length} 张</span>
+            <span>第 {safePage} / {pageCount} 页，共 {total} 张</span>
             <Button variant="outline" size="icon" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
               <ChevronLeft className="size-4" />
             </Button>
@@ -676,7 +707,7 @@ function ImageManagerContent() {
               <ChevronRight className="size-4" />
             </Button>
           </div>
-          {!isLoading && filteredItems.length === 0 ? (
+          {!isLoading && total === 0 ? (
             <EmptyState icon={<ImageIcon />} title="没有找到图片" description="调整日期范围或标签筛选后重试" className="border-t border-border" />
           ) : null}
         </CardContent>
