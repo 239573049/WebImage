@@ -5,6 +5,7 @@ import mimetypes
 import re
 import time
 import uuid
+import zlib
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urlparse
@@ -12,11 +13,14 @@ from urllib.parse import urlparse
 from curl_cffi import requests
 from fastapi import HTTPException
 from services.proxy_service import proxy_settings
+from utils.image_format import detect_base64_image_mime
 from utils.log import logger
 
 # 内置的 Web 生图模型（走官网画图链路，模型名原样透传给上游）。
 # 与 services.config.DEFAULT_IMAGE_MODELS 保持一致。
 DEFAULT_WEB_IMAGE_MODELS = {
+    "gpt-image-2.6-sunburst",
+    "gpt-image-2.6-flare",
     "gpt-image-2.5-sunburst",
     "gpt-image-2.5-flare",
     "gpt-image-2",
@@ -271,8 +275,89 @@ def anthropic_sse_stream(items) -> Iterator[str]:
         yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
 
 
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+class _StreamingGzipDecoder:
+    """流式解压 gzip，支持多个 gzip member 首尾相接（上游可能按事件分段压缩）。"""
+
+    def __init__(self) -> None:
+        self._decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+
+    def feed(self, data: bytes) -> bytes:
+        output = bytearray()
+        while data:
+            output += self._decoder.decompress(data)
+            if not self._decoder.eof:
+                break
+            data = self._decoder.unused_data
+            self._decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        return bytes(output)
+
+    def flush(self) -> bytes:
+        try:
+            return self._decoder.flush()
+        except zlib.error:
+            return b""
+
+
+def _iter_decoded_sse_chunks(response: requests.Response) -> Iterator[bytes]:
+    """按块读取 SSE body；若 body 仍是 gzip（底层未自动解压，如 x-openai-web-sse-compression），就地解压。
+
+    底层 HTTP 客户端已按 Content-Encoding 解压时，数据不以 gzip 魔数开头，原样透传。
+    """
+    decoder: _StreamingGzipDecoder | None = None
+    pending = b""
+    decided = False
+    for chunk in response.iter_content():
+        if not chunk:
+            continue
+        if not decided:
+            pending += bytes(chunk)
+            if len(pending) < len(_GZIP_MAGIC):
+                continue
+            decided = True
+            chunk, pending = pending, b""
+            if chunk.startswith(_GZIP_MAGIC):
+                decoder = _StreamingGzipDecoder()
+        if decoder is None:
+            yield bytes(chunk)
+            continue
+        decoded = decoder.feed(bytes(chunk))
+        if decoded:
+            yield decoded
+    if pending:
+        yield pending
+    if decoder is not None:
+        tail = decoder.flush()
+        if tail:
+            yield tail
+
+
+def iter_sse_lines(response: requests.Response) -> Iterator[bytes]:
+    """把（可能 gzip 压缩的）SSE body 切成行，兼容 \n / \r\n / \r 换行。"""
+    if not hasattr(response, "iter_content"):
+        for raw_line in response.iter_lines():
+            yield raw_line if isinstance(raw_line, bytes) else str(raw_line).encode("utf-8")
+        return
+    buffer = b""
+    for chunk in _iter_decoded_sse_chunks(response):
+        buffer += chunk
+        lines = buffer.splitlines(keepends=True)
+        buffer = b""
+        if lines and not lines[-1].endswith((b"\n", b"\r")):
+            buffer = lines.pop()
+        elif lines and lines[-1].endswith(b"\r"):
+            # \r\n 可能被拆在两个块之间，保留到下一块再判断
+            buffer = lines.pop()
+        for line in lines:
+            yield line.rstrip(b"\r\n")
+    if buffer:
+        yield buffer.rstrip(b"\r\n")
+
+
 def iter_sse_payloads(response: requests.Response) -> Iterator[str]:
-    for raw_line in response.iter_lines():
+    for raw_line in iter_sse_lines(response):
         if not raw_line:
             continue
         line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
@@ -510,5 +595,6 @@ def build_chat_image_markdown_content(image_result: dict[str, object]) -> str:
             continue
         b64_json = str(item.get("b64_json") or "").strip()
         if b64_json:
-            markdown_images.append(f"![image_{index}](data:image/png;base64,{b64_json})")
+            mime = detect_base64_image_mime(b64_json)
+            markdown_images.append(f"![image_{index}](data:{mime};base64,{b64_json})")
     return "\n\n".join(markdown_images) if markdown_images else "Image generation completed."

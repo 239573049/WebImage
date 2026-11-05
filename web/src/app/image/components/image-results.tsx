@@ -5,6 +5,7 @@ import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } f
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { imageExtensionForMime, imageExtensionFromUrl, sniffBase64ImageMime } from "@/lib/image-format";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurn, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
 
@@ -13,6 +14,7 @@ export type ImageLightboxItem = {
   src: string;
   sizeLabel?: string;
   dimensions?: string;
+  fileExtension?: string;
 };
 
 type ImageResultsProps = {
@@ -52,7 +54,7 @@ function getStoredImageSrc(image: StoredImage) {
   if (image.b64_json) {
     let url = b64BlobUrlCache.get(image.b64_json);
     if (!url) {
-      const blob = new Blob([base64ToBytes(image.b64_json)], { type: "image/png" });
+      const blob = new Blob([base64ToBytes(image.b64_json)], { type: sniffBase64ImageMime(image.b64_json) });
       url = URL.createObjectURL(blob);
       b64BlobUrlCache.set(image.b64_json, url);
     }
@@ -80,6 +82,9 @@ function toLightboxItem(image: StoredImage): ImageLightboxItem {
     },
     sizeLabel: image.b64_json ? formatBase64ImageSize(image.b64_json) : undefined,
     dimensions: imageDimensions.get(image.id),
+    fileExtension: image.b64_json
+      ? imageExtensionForMime(sniffBase64ImageMime(image.b64_json))
+      : imageExtensionFromUrl(image.url),
   };
 }
 
@@ -87,7 +92,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
   let blob: Blob | null = null;
   try {
     if (image.b64_json) {
-      blob = new Blob([base64ToBytes(image.b64_json)], { type: "image/png" });
+      blob = new Blob([base64ToBytes(image.b64_json)], { type: sniffBase64ImageMime(image.b64_json) });
     } else if (image.url) {
       // 确保 URL 是绝对路径
       const url = image.url.startsWith("http") ? image.url : `${window.location.origin}${image.url}`;
@@ -110,7 +115,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `image-${index + 1}.png`;
+  a.download = `image-${index + 1}.${imageExtensionForMime(blob.type, imageExtensionFromUrl(image.url))}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

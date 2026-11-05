@@ -18,13 +18,15 @@ def png_bytes() -> bytes:
 
 class FakeWebDAVClient:
     uploaded: dict[str, bytes] = {}
+    content_types: dict[str, str] = {}
     deleted: list[str] = []
 
     def __init__(self, _settings):
         pass
 
-    def put(self, rel: str, payload: bytes) -> str:
+    def put(self, rel: str, payload: bytes, content_type: str = "image/png") -> str:
         self.uploaded[rel] = payload
+        self.content_types[rel] = content_type
         return f"https://dav.example.test/{rel}"
 
     def get(self, rel: str) -> bytes:

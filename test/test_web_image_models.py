@@ -25,6 +25,8 @@ from utils.helper import is_supported_image_model, split_image_model, supported_
 
 SUNBURST = "gpt-image-2.5-sunburst"
 FLARE = "gpt-image-2.5-flare"
+SUNBURST_2_6 = "gpt-image-2.6-sunburst"
+FLARE_2_6 = "gpt-image-2.6-flare"
 
 
 def make_store(initial: dict | None = None) -> tuple[ConfigStore, tempfile.TemporaryDirectory]:
@@ -63,6 +65,24 @@ class WebImageModelRegistryTests(unittest.TestCase):
         self.assertIn(FLARE, models)
         self.assertIn("codex-gpt-image-2", models)
         self.assertIn("plus-codex-gpt-image-2", models)
+
+
+class WebImage26ModelTests(unittest.TestCase):
+    def test_builtin_image_models_include_the_2_6_models(self) -> None:
+        self.assertIn(SUNBURST_2_6, DEFAULT_IMAGE_MODELS)
+        self.assertIn(FLARE_2_6, DEFAULT_IMAGE_MODELS)
+
+    def test_2_6_models_are_supported_without_plan_prefix(self) -> None:
+        self.assertEqual(split_image_model(SUNBURST_2_6), (None, SUNBURST_2_6))
+        self.assertEqual(split_image_model(FLARE_2_6), (None, FLARE_2_6))
+        self.assertEqual(split_image_model(f"plus-{SUNBURST_2_6}"), (None, None))
+        self.assertTrue(is_supported_image_model(FLARE_2_6))
+
+    def test_2_6_models_are_passed_through_to_upstream(self) -> None:
+        with mock.patch("services.openai_backend_api.config", SimpleNamespace(default_thinking_effort="auto")):
+            api = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+            self.assertEqual(OpenAIBackendAPI._image_model_settings(api, SUNBURST_2_6)[0], SUNBURST_2_6)
+            self.assertEqual(OpenAIBackendAPI._image_model_settings(api, FLARE_2_6)[0], FLARE_2_6)
 
 
 class UpstreamModelMappingTests(unittest.TestCase):

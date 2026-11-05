@@ -11,6 +11,7 @@ from curl_cffi import requests
 
 from services.config import config
 from services.proxy_service import proxy_settings
+from utils.image_format import detect_image_extension, detect_image_mime
 
 
 UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
@@ -103,10 +104,11 @@ class MeansStorageService:
     def make_object_key(image_data: bytes, prefix: str = "") -> str:
         digest = hashlib.sha256(image_data).hexdigest()
         date_path = datetime.now(timezone.utc).strftime("%Y/%m/%d")
-        filename = f"{digest}.png"
+        filename = f"{digest}{detect_image_extension(image_data)}"
         return str(PurePosixPath(prefix, date_path, filename)) if prefix else str(PurePosixPath(date_path, filename))
 
-    def upload(self, image_data: bytes, content_type: str = "image/png") -> str:
+    def upload(self, image_data: bytes, content_type: str = "") -> str:
+        content_type = content_type or detect_image_mime(image_data)
         settings = self.settings()
         if not settings.get("enabled"):
             raise MeansStorageError("Means 图片存储未启用")

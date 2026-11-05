@@ -14,6 +14,7 @@ from PIL import Image, ImageOps
 from services.config import config
 from services.image_storage_service import image_storage_service
 from services.image_tags_service import load_tags, remove_tags
+from utils.image_format import IMAGE_MIME_BY_EXTENSION, image_mime_for_path
 from utils.log import logger
 
 THUMBNAIL_SIZE = (320, 320)
@@ -58,7 +59,11 @@ def get_image_response(relative_path: str) -> FileResponse | Response:
     }
     if image_storage_service.has_local(relative_path):
         return FileResponse(_safe_image_path(relative_path), headers=headers)
-    return Response(content=image_storage_service.get_bytes(relative_path), media_type="image/png", headers=headers)
+    return Response(
+        content=image_storage_service.get_bytes(relative_path),
+        media_type=image_mime_for_path(relative_path),
+        headers=headers,
+    )
 
 
 def _thumbnail_path(relative_path: str) -> Path:
@@ -130,7 +135,7 @@ def get_image_download_response(relative_path: str) -> FileResponse:
     }
     return Response(
         content=image_storage_service.get_bytes(rel),
-        media_type="image/png",
+        media_type=image_mime_for_path(rel),
         headers=headers,
     )
 
@@ -284,7 +289,7 @@ def delete_to_target(target_free_mb: int, dry_run: bool = False) -> dict:
         return {"removed": 0, "current_free_mb": current_free, "target_free_mb": target_free_mb, "done": True}
 
     files = sorted(
-        (p for p in config.images_dir.rglob("*.png") if p.is_file()),
+        (p for p in config.images_dir.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_MIME_BY_EXTENSION),
         key=lambda p: p.stat().st_mtime,
     )
     removed = 0

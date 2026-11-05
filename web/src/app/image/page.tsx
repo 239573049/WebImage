@@ -30,6 +30,7 @@ import {
   type Model,
   type ImageTask,
 } from "@/lib/api";
+import { sniffBase64ImageMime } from "@/lib/image-format";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useSettingsStore } from "@/app/settings/store";
 import {
@@ -174,10 +175,11 @@ function buildReferenceImageFromResult(image: StoredImage, fileName: string): St
     return null;
   }
 
+  const mimeType = sniffBase64ImageMime(image.b64_json);
   return {
     name: fileName,
-    type: "image/png",
-    dataUrl: `data:image/png;base64,${image.b64_json}`,
+    type: mimeType,
+    dataUrl: `data:${mimeType};base64,${image.b64_json}`,
   };
 }
 

@@ -12,6 +12,7 @@ from typing import Callable, Mapping
 from urllib import request as urllib_request
 from urllib.parse import quote, urlparse
 
+import certifi
 from curl_cffi.requests import Session
 
 from services.config import config
@@ -324,6 +325,10 @@ class ProxySettingsStore:
             session_kwargs["proxy"] = profile.proxy_url
         if upstream and profile.runtime_enabled and profile.skip_ssl_verify:
             session_kwargs["verify"] = False
+        elif session_kwargs.get("verify") is True:
+            # curl_cffi 默认的内置根证书缺少较新的根（如 Let's Encrypt 新链路 YE1 → Root YE → ISRG Root X2），
+            # 会报 curl (60) unable to get local issuer certificate；显式使用 certifi 证书包校验。
+            session_kwargs["verify"] = certifi.where()
         return session_kwargs
 
     def build_headers(
